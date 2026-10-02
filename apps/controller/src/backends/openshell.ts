@@ -60,6 +60,10 @@ export class OpenShellGateway {
     return created;
   }
 
+  endpointForNamespace(namespace: string): string {
+    return this.clientOptions(namespace).endpoint;
+  }
+
   close(): void {
     this.injectedClient?.close();
     for (const client of this.clients.values()) {

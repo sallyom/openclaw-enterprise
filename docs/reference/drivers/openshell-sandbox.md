@@ -1,31 +1,27 @@
 # OpenShell SandboxDriver
 
-The bundled OpenShell SandboxDriver integrates a deployment-paired OpenShell
-Gateway with dedicated Codex and native OpenClaw Harnesses and the bundled
-[Kubernetes Compute Driver](kubernetes-compute.md). OCC retains ownership of
-Agents, revisions, Namespaces, routing, credentials, and authorization.
+The OpenShell SandboxDriver runs dedicated Codex and native OpenClaw Harnesses
+with the [Kubernetes Compute Driver](kubernetes-compute.md). OCC owns Agents,
+revisions, Namespaces, routing, credentials, and authorization.
 
 **The OpenShell integration is a work in progress.** Stock OpenShell
 [`v0.1.3-pre.1`](https://github.com/NVIDIA/OpenShell/tree/v0.1.3-pre.1) cannot accept the
 Secret-backed app-server token or projected workload identity a dedicated Agent
-requires. The model API key is no longer a blocker: the paired
-[OpenShell Credential Gateway](openshell-credential-gateway.md) delivers it. The
-Enterprise Driver rejects these revisions by default. A
+requires. The [OpenShell Credential Gateway](openshell-credential-gateway.md)
+delivers the model API key. The Driver rejects these revisions by default. A
 [test-cluster bridge](openshell-sandbox-test-bridge.md) stages the missing inputs
 through a Job and PVC; it is not a production path.
 
-Embedded OpenClaw also fails when OpenShell is selected; the integration is
-designed only for dedicated Harnesses. Kubernetes Compute requires dedicated
-native OpenClaw to use a provisioning SandboxDriver that declares networking,
-filesystem, and process containment. The bundled OpenShell Driver is the current
-implementation of that contract. See the
+OpenShell supports dedicated Harnesses; embedded OpenClaw fails. Kubernetes
+Compute requires dedicated native OpenClaw to use a provisioning SandboxDriver
+with networking, filesystem, and process containment. See the
 [upstream requirements](#current-upstream-preconditions) before evaluating it.
 
 ## Ownership model
 
-The following describes how the integration is wired. Stock OpenShell cannot
-complete dedicated Harness provisioning until it meets the upstream
-requirements. The Kubernetes Compute Driver remains the orchestration owner:
+Stock OpenShell cannot complete dedicated Harness provisioning until it meets
+the [upstream requirements](#current-upstream-preconditions). Kubernetes Compute
+orchestrates the workflow:
 
 - It creates or adopts the OpenClaw Namespace and applies baseline isolation.
 - It creates the per-Agent OpenClaw Gateway and private state in the control-plane
@@ -39,7 +35,7 @@ requirements. The Kubernetes Compute Driver remains the orchestration owner:
 - It routes only to the active revision and removes routing during
   deactivation when the Service still points at that revision.
 
-The OpenShell SandboxDriver owns only the provider sandboxing delegation:
+The OpenShell SandboxDriver delegates sandboxing:
 
 - `configureAgent` contributes provider-specific gateway configuration before
   OCC validates and freezes the immutable Agent revision.
@@ -61,6 +57,10 @@ The OpenShell SandboxDriver owns only the provider sandboxing delegation:
   for each session.
 - OpenShell's controller creates and owns the provider Harness Pod behind that
   Sandbox.
+- With `gateway.serviceRouting`, `harnessTransport` gives Kubernetes Compute
+  the published WebSocket route, virtual Host, and exact NetworkPolicy peer.
+  The Agent Gateway uses that route for Codex. The Driver checks that OpenShell
+  returned the expected virtual Host during Sandbox creation.
 - `cleanup` receives the immutable Agent revision during revision retirement and
   derives the stable provider Sandbox identity, so retirement works even when its
   Pod is gone. During Namespace deletion it receives no revision, verifies
@@ -68,18 +68,14 @@ The OpenShell SandboxDriver owns only the provider sandboxing delegation:
   workspace-chart and NetworkPolicy resources. Kubernetes Compute deletes the
   Kubernetes namespace only after that succeeds.
 
-The returned provider-owned Pod is not re-verified as an OCC-owned workload.
-Compute trusts OpenShell to enforce the Sandbox it provisions, while OCC still
-requires ordinary workload readiness and exact active-revision routing before
-traffic is served. Each immutable Agent revision retains only
-`sandboxDriverId`, so workers resolve the same selected driver for provisioning
-and cleanup without persisting duplicate provider descriptors or facets.
+Compute trusts OpenShell to enforce its provider-owned Pod, then requires
+workload readiness and active-revision routing before serving traffic. Each
+Agent revision retains `sandboxDriverId` for provisioning and cleanup.
 
 ## OpenShell containment facets
 
-The Driver configures all three available
-[SandboxDriver containment facets](sandbox.md#containment-facets). Applying them
-to a running Agent requires upstream support:
+The Driver configures all three
+[SandboxDriver containment facets](sandbox.md#containment-facets):
 
 | Facet        | Current OpenShell behavior                                                                    |
 | ------------ | --------------------------------------------------------------------------------------------- |
@@ -146,13 +142,19 @@ The [test-cluster bridge](openshell-sandbox-test-bridge.md) requires the same
 Agent ServiceAccount in the gateway and Driver. Its copied token expires;
 production leaves the option unset.
 
+For published service routing, `gateway.serviceRouting` names the published
+domain and exact OpenShell Gateway Pod peer.
+
 Do not add a policy for the model endpoint. The credential source's provider
 profile allows `api.openai.com` with TLS inspection, and an uninspected rule for
 the same host conflicts with it.
 
 Each v0.1.3-pre.1 network policy requires at least one binary identity with a nonempty
 executable path. OpenShell applies the endpoints only to those
-binaries. The optional endpoint fields use OpenShell's configuration spellings: `tls`
+binaries. For a private Service, set `allowedIps` to its exact Service VIP
+CIDR; OpenShell otherwise rejects internal addresses. Use its full cluster DNS
+name because the policy resolver does not apply Kubernetes search domains.
+The optional endpoint fields use OpenShell's configuration spellings: `tls`
 accepts `skip` or `terminate`; `enforcement` accepts `enforce` or `audit`; and
 `access` accepts `read_only`, `read_write`, or `full`. OpenShell v0.1.3-pre.1 treats
 `terminate` as a deprecated alias for automatic TLS detection and termination.

@@ -1275,6 +1275,11 @@ function integrationGatewayClient(
       return gateway.deleteWorkspace(name, signal);
     },
     async createSandbox(request, signal) {
+      // The live Gateway must accept the Driver's exact private-IP allowlist in the Sandbox policy.
+      assert.deepEqual(
+        request.spec.policy.network_policies["private-service"].endpoints[0].allowed_ips,
+        ["10.0.0.10/32"],
+      );
       const compatible = enableCompatibilityBridge
         ? removeStockUnsupportedTokenProjection(request, context.requirements)
         : request;
@@ -2037,6 +2042,11 @@ async function prepareProductionInstallation(
         tls: "skip",
       },
     ],
+    binaries: [{ path: "/usr/local/bin/node" }],
+  });
+  configuration.drivers.sandbox.configuration.policy.networkPolicies.push({
+    name: "private-service",
+    endpoints: [{ host: "internal.example.invalid", ports: [443], allowedIps: ["10.0.0.10/32"] }],
     binaries: [{ path: "/usr/local/bin/node" }],
   });
   configuration.drivers.secret.configuration.authentication = controller.authentication;

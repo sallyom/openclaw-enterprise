@@ -965,6 +965,19 @@ export interface SandboxResourceRef {
   readonly revisionId: string;
 }
 
+export interface SandboxHarnessTransport {
+  /** Gateway-reachable WebSocket endpoint for a provider-owned Harness. */
+  readonly url: string;
+  /** Virtual Host required by the provider's published service router. */
+  readonly hostHeader?: string;
+  /** Exact network peer to admit from the Agent Gateway. */
+  readonly peer: {
+    readonly namespaceName: string;
+    readonly podLabels: Readonly<Record<string, string>>;
+    readonly port: number;
+  };
+}
+
 export interface SandboxNamespaceContext {
   readonly namespace: Readonly<Namespace>;
   readonly kubernetes: unknown;
@@ -1207,6 +1220,10 @@ export interface SandboxDriver extends Driver {
   ): OpenClawConfigurationDocument;
   ensureNamespace?(context: SandboxNamespaceContext): Promise<void>;
   provisionHarness?(context: SandboxHarnessContext): Promise<SandboxResourceRef>;
+  /** Pure, stable route for a provider-owned Harness; Compute uses it for gateway delivery. */
+  harnessTransport?(
+    context: Pick<SandboxHarnessContext, "revision"> & { readonly namespaceName: string },
+  ): SandboxHarnessTransport | undefined;
   /**
    * The exact Sandbox `provisionHarness` creates for this revision, derived without effects.
    * Required to revoke credentials from a running revision.

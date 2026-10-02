@@ -7221,7 +7221,11 @@ test("provider-owned Harness requirements preserve the exact projected ServicePr
   );
 });
 
-function providerReadinessFixture({ provisionHarness, lifecycleDrivers = [] } = {}) {
+function providerReadinessFixture({
+  provisionHarness,
+  harnessTransport,
+  lifecycleDrivers = [],
+} = {}) {
   const driver = new KubernetesComputeDriver(
     routedOptions({
       runtime: {
@@ -7243,6 +7247,10 @@ function providerReadinessFixture({ provisionHarness, lifecycleDrivers = [] } = 
       },
       sandboxDriver: {
         id: "sandbox-provider",
+        harnessTransport({ namespaceName }) {
+          assert.equal(namespaceName, kubernetesNamespaceName(tenant.id));
+          return harnessTransport;
+        },
         async provisionHarness(context) {
           if (provisionHarness !== undefined) {
             return provisionHarness(context);
@@ -7573,7 +7581,17 @@ test("provider Harness requires its assigned network profile before readiness an
 test("provider Harness preparation preserves readiness and cleanup contracts", async () => {
   const hooks = [];
   const provisions = [];
+  const harnessTransport = {
+    url: "ws://openshell-gateway.openshell-system.svc:8080/",
+    hostHeader: "tenant--sandbox.openshell.localhost:8080",
+    peer: {
+      namespaceName: "openshell-system",
+      podLabels: { "app.kubernetes.io/instance": "openshell-gateway" },
+      port: 8080,
+    },
+  };
   const fixture = providerReadinessFixture({
+    harnessTransport,
     async provisionHarness(context) {
       // The provider fences Harness egress; a Compute auth grant would be unioned with it.
       assert.equal(
@@ -7692,6 +7710,11 @@ test("provider Harness preparation preserves readiness and cleanup contracts", a
     [],
     [],
     driver.pluginRuntimeSnapshot(revision),
+    [],
+    undefined,
+    undefined,
+    undefined,
+    harnessTransport,
   );
   gateway.metadata.generation = 1;
   gateway.status = {
@@ -7825,6 +7848,25 @@ test("provider Harness preparation preserves readiness and cleanup contracts", a
 
   fixture.setObservation({ items: [fixture.pod("ready")] });
   await driver.activateRevision(revision, authContext(revision));
+  const gatewayNamespace = kubernetesGatewayNamespaceName(tenant.id);
+  const activeGateway = objects.get(key("Deployment", gatewayName, gatewayNamespace));
+  const gatewayEnvironment = Object.fromEntries(
+    activeGateway.spec.template.spec.containers[0].env.map(({ name, value }) => [name, value]),
+  );
+  assert.equal(gatewayEnvironment.APP_SERVER_URL, harnessTransport.url);
+  assert.equal(gatewayEnvironment.APP_SERVER_ROUTE_HOST, harnessTransport.hostHeader);
+  const gatewayEgress = objects.get(
+    key("NetworkPolicy", `allow-gateway-agent-${digest(revision.agentId)}`, gatewayNamespace),
+  );
+  assert.deepEqual(gatewayEgress.spec.egress[1], {
+    to: [
+      {
+        namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "openshell-system" } },
+        podSelector: { matchLabels: harnessTransport.peer.podLabels },
+      },
+    ],
+    ports: [{ protocol: "TCP", port: 8080 }],
+  });
   assert.deepEqual(objects.get(key("Service", agentServiceName)).spec.selector, {
     "openclaw.dev/network-profile": "provider-fenced-v1",
     "openclaw.dev/namespace": revision.namespaceId,

@@ -296,6 +296,41 @@ test("OpenShell configures only the selected dedicated Harness runtime", () => {
   );
 });
 
+test("OpenShell publishes a stable protected Codex route for the Gateway", () => {
+  const configuration = sandboxInstallation().drivers.sandbox.configuration;
+  configuration.gateway.serviceRouting = {
+    domain: "openshell.localhost",
+    peer: {
+      namespaceName: "openshell-system",
+      podLabels: { "app.kubernetes.io/instance": "openshell-gateway" },
+    },
+  };
+  configuration.kubernetes.serviceAuthorizationMode = "bearerPassthrough";
+  const driver = new OpenShellSandboxDriver(configuration, {
+    id: "openshell-sandbox",
+    implementation: "openshell",
+    backend: backendFor(workspaceGatewayClient()),
+  });
+  const revision = {
+    id: "rev_00000000-0000-4000-8000-000000000001",
+    harness: { id: "codex", mode: "dedicated" },
+  };
+  const namespace = namespaceContext().namespace;
+  const sandbox = driver.harnessResource({ namespace, revision });
+  const route = driver.harnessTransport({ revision, namespaceName: namespace.name });
+  assert.equal(route.url, `ws://openshell-gateway.${namespace.name}.svc:8080/`);
+  assert.equal(
+    route.hostHeader,
+    `${namespace.name}--${sandbox.resourceName}.openshell.localhost:8080`,
+  );
+  assert.deepEqual(route.peer, { ...configuration.gateway.serviceRouting.peer, port: 8080 });
+  const configured = driver.configureAgent({}, revision.harness);
+  assert.equal(
+    configured.plugins.entries.codex.config.appServer.headers.Host,
+    "${APP_SERVER_ROUTE_HOST}",
+  );
+});
+
 test("OpenShell provisions native OpenClaw without exposing an inbound Harness service", async () => {
   const requests = [];
   const gatewayClient = workspaceGatewayClient();
@@ -307,7 +342,9 @@ test("OpenShell provisions native OpenClaw without exposing an inbound Harness s
       serviceUrls: {},
     };
   };
-  const driver = new OpenShellSandboxDriver(sandboxInstallation().drivers.sandbox.configuration, {
+  const configuration = sandboxInstallation().drivers.sandbox.configuration;
+  configuration.policy.networkPolicies[0].endpoints[0].allowedIps = ["10.0.0.10/32"];
+  const driver = new OpenShellSandboxDriver(configuration, {
     id: "openshell-sandbox",
     implementation: "openshell",
     backend: backendFor(gatewayClient),
@@ -368,6 +405,10 @@ test("OpenShell provisions native OpenClaw without exposing an inbound Harness s
   assert.deepEqual(requests[0].serviceExposures, []);
   assert.deepEqual(requests[0].spec.command, command);
   assert.deepEqual(requests[0].labels, labels);
+  assert.deepEqual(
+    requests[0].spec.policy.network_policies["model-egress"].endpoints[0].allowed_ips,
+    ["10.0.0.10/32"],
+  );
 });
 
 test("OpenShell rejects Secret-backed Harness environment as a permanent revision failure", async () => {

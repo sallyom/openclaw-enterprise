@@ -16,6 +16,7 @@ import type {
   OpenClawConfigurationValue,
   SandboxDriver,
   SandboxHarnessContext,
+  SandboxHarnessTransport,
   SandboxLogChunk,
   SandboxLogContext,
   SandboxLogRequest,
@@ -50,6 +51,7 @@ export interface OpenShellKubernetesNetworkPeer {
 export interface OpenShellNetworkEndpoint {
   readonly host: string;
   readonly ports: readonly number[];
+  readonly allowedIps?: readonly string[];
   readonly protocol?: string;
   readonly tls?: "skip" | "terminate";
   readonly enforcement?: "enforce" | "audit";
@@ -79,6 +81,11 @@ export interface OpenShellSandboxDriverOptions {
     };
     readonly operatorWorkspaceResources?: readonly KubernetesNamespacedResource[];
     readonly networkPolicyResources?: readonly KubernetesNamespacedResource[];
+    /** Published service routing for Gateway-to-Sandbox WebSocket traffic. */
+    readonly serviceRouting?: {
+      readonly domain: string;
+      readonly peer: OpenShellKubernetesNetworkPeer;
+    };
   };
   readonly kubernetes: {
     readonly runtimeClassName: string;
@@ -793,6 +800,13 @@ function networkPolicies(options: OpenShellSandboxDriverOptions) {
           return {
             host: nonempty(endpoint.host, `${description} host`),
             ports: endpoint.ports.map((value) => port(value, `${description} port`)),
+            ...(endpoint.allowedIps === undefined
+              ? {}
+              : {
+                  allowed_ips: endpoint.allowedIps.map((value) =>
+                    nonempty(value, `${description} allowed IP`),
+                  ),
+                }),
             ...(endpoint.protocol === undefined ? {} : { protocol: endpoint.protocol }),
             ...(tls === undefined ? {} : { tls }),
             ...(enforcement === undefined ? {} : { enforcement }),
@@ -896,6 +910,7 @@ function validateOptions(options: OpenShellSandboxDriverOptions): void {
         "readiness",
         "operatorWorkspaceResources",
         "networkPolicyResources",
+        "serviceRouting",
       ].includes(key)
     ) {
       throw new OpenShellSandboxConfigurationFailure(
@@ -910,6 +925,17 @@ function validateOptions(options: OpenShellSandboxDriverOptions): void {
         "OpenShell operator Namespace labels must not be empty.",
       );
     }
+  }
+  if (options.gateway.serviceRouting !== undefined) {
+    const routing = options.gateway.serviceRouting;
+    const domain = nonempty(routing.domain, "OpenShell service routing domain");
+    if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(domain) || domain.includes("..")) {
+      throw new OpenShellSandboxConfigurationFailure(
+        "OpenShell service routing domain is invalid.",
+      );
+    }
+    nonempty(routing.peer.namespaceName, "OpenShell service routing peer namespace");
+    labels(routing.peer.podLabels, "OpenShell service routing peer labels");
   }
   if (options.gateway.readiness !== undefined) {
     nonempty(options.gateway.readiness.serviceName, "OpenShell gateway Service name");
@@ -1107,6 +1133,13 @@ export class OpenShellSandboxDriver implements SandboxDriver {
       codexConfig.appServer,
       "OpenShell Sandbox Codex app-server config",
     );
+    const headers =
+      this.options.gateway.serviceRouting === undefined
+        ? undefined
+        : optionalAgentConfiguration(
+            appServer.headers,
+            "OpenShell Sandbox Codex app-server headers",
+          );
 
     return {
       ...configuration,
@@ -1122,6 +1155,9 @@ export class OpenShellSandboxDriver implements SandboxDriver {
               appServer: {
                 ...appServer,
                 sandbox: "danger-full-access",
+                ...(headers === undefined
+                  ? {}
+                  : { headers: { ...headers, Host: "${APP_SERVER_ROUTE_HOST}" } }),
               },
             },
           },
@@ -1246,6 +1282,19 @@ export class OpenShellSandboxDriver implements SandboxDriver {
     }
     if (codex) {
       validateHarnessServiceUrl(created.serviceUrls[""]);
+      const transport = this.harnessTransport({
+        revision: context.revision,
+        namespaceName: sandbox.namespaceName,
+      });
+      if (
+        transport?.hostHeader !== undefined &&
+        new URL(nonempty(created.serviceUrls[""], "OpenShell Harness service URL")).host !==
+          transport.hostHeader
+      ) {
+        throw new OpenShellSandboxConfigurationFailure(
+          "OpenShell returned a Harness service route different from the configured route.",
+        );
+      }
     } else if (Object.keys(created.serviceUrls).length !== 0) {
       throw new OpenShellSandboxConfigurationFailure(
         "OpenShell exposed an unexpected service for the native OpenClaw Harness.",
@@ -1383,14 +1432,51 @@ export class OpenShellSandboxDriver implements SandboxDriver {
     return this.sandboxRef(context);
   }
 
+  harnessTransport(
+    context: Pick<SandboxHarnessContext, "revision"> & { readonly namespaceName: string },
+  ): SandboxHarnessTransport | undefined {
+    const routing = this.options.gateway.serviceRouting;
+    if (context.revision.harness.id !== "codex" || routing === undefined) {
+      return undefined;
+    }
+    const endpoint = new URL(this.backend.client.endpointForNamespace(context.namespaceName));
+    if (
+      !["http:", "https:"].includes(endpoint.protocol) ||
+      endpoint.username ||
+      endpoint.password ||
+      endpoint.pathname !== "/" ||
+      endpoint.search ||
+      endpoint.hash
+    ) {
+      throw new OpenShellSandboxConfigurationFailure(
+        "OpenShell published service routing requires a gateway HTTP origin.",
+      );
+    }
+    const gatewayPort = Number(endpoint.port || (endpoint.protocol === "https:" ? 443 : 80));
+    const hostHeader = `${context.namespaceName}--${this.sandboxName(context.revision.id)}.${routing.domain}:${gatewayPort}`;
+    return Object.freeze({
+      url: `${endpoint.protocol === "https:" ? "wss" : "ws"}://${endpoint.host}/`,
+      hostHeader,
+      peer: {
+        namespaceName: routing.peer.namespaceName,
+        podLabels: routing.peer.podLabels,
+        port: gatewayPort,
+      },
+    });
+  }
+
+  private sandboxName(revisionId: string): string {
+    const prefix = this.options.sandboxNamePrefix ?? DEFAULT_SANDBOX_NAME_PREFIX;
+    const hashLength = OPENSHELL_MAX_SANDBOX_NAME_LENGTH - prefix.length - 1;
+    return `${prefix}-${sha256Hex(revisionId, hashLength)}`;
+  }
+
   private sandboxRef(
     context: Pick<SandboxHarnessContext, "namespace" | "revision">,
   ): SandboxResourceRef {
-    const prefix = this.options.sandboxNamePrefix ?? DEFAULT_SANDBOX_NAME_PREFIX;
-    const hashLength = OPENSHELL_MAX_SANDBOX_NAME_LENGTH - prefix.length - 1;
     return Object.freeze({
       namespaceName: namespaceName(context.namespace),
-      resourceName: `${prefix}-${sha256Hex(context.revision.id, hashLength)}`,
+      resourceName: this.sandboxName(context.revision.id),
       agentId: context.revision.agentId,
       revisionId: context.revision.id,
     });

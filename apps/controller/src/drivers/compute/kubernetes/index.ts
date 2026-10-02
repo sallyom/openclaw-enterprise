@@ -67,6 +67,7 @@ import type {
   NamespaceEnsureResult,
   SandboxDriver,
   SandboxEnvironmentVariable,
+  SandboxHarnessTransport,
   SandboxNamespaceContext,
   SandboxResourceRef,
   SandboxWorkspaceMount,
@@ -3815,6 +3816,9 @@ export class KubernetesComputeDriver implements ComputeDriver {
         existingGateway === undefined &&
         workspaceSetup === undefined &&
         !initialDedicatedCodexGateway;
+      const sandboxTransport = embedded
+        ? undefined
+        : this.sandboxHarnessTransport(revision, namespace);
       const reconcileGatewayDeployment = async (environment: Record<string, string>) => {
         await this.reconcileChannelNetworkPolicy(revision, channels, gatewayNamespace);
         await this.deliverWorkspaceNodeBinding(
@@ -3844,6 +3848,7 @@ export class KubernetesComputeDriver implements ComputeDriver {
             workspaceSetup,
             repositoryConsumer?.role === "gateway" ? repositoryMaterial : undefined,
             undefined,
+            sandboxTransport,
           ),
           gatewayOwnership,
           gatewayNamespace,
@@ -4570,6 +4575,9 @@ export class KubernetesComputeDriver implements ComputeDriver {
         pluginRuntime,
         [],
         workspaceSetup,
+        undefined,
+        undefined,
+        this.sandboxHarnessTransport(revision, namespace),
       ),
       gatewayOwnership,
       gatewayNamespace,
@@ -6304,6 +6312,42 @@ export class KubernetesComputeDriver implements ComputeDriver {
     ) {
       throw new OwnershipFailure("SandboxDriver returned an ambiguous Sandbox identity.");
     }
+  }
+
+  private sandboxHarnessTransport(
+    revision: AgentRevision,
+    namespace: KubernetesNamespaceAddress,
+  ): SandboxHarnessTransport | undefined {
+    const transport = this.sandboxDriverForRevision(revision)?.harnessTransport?.({
+      revision,
+      namespaceName: namespace.name,
+    });
+    if (transport === undefined) {
+      return undefined;
+    }
+    let url: URL;
+    try {
+      url = new URL(transport.url);
+    } catch {
+      throw new ConfigurationFailure("Sandbox Harness transport URL is invalid.");
+    }
+    if (
+      !["ws:", "wss:"].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      (transport.hostHeader !== undefined && !/^[a-z0-9.-]+:[0-9]+$/.test(transport.hostHeader)) ||
+      !transport.peer.namespaceName ||
+      Object.keys(transport.peer.podLabels).length === 0 ||
+      !Number.isSafeInteger(transport.peer.port) ||
+      transport.peer.port < 1 ||
+      transport.peer.port > 65535
+    ) {
+      throw new ConfigurationFailure("Sandbox Harness transport route is invalid.");
+    }
+    return transport;
   }
 
   private async providerHarnessReady(
@@ -9996,6 +10040,7 @@ chmodSync(${JSON.stringify(nodeStatePath)}, 0o700);`;
       { protocol: "TCP", port: AGENT_TRANSPORT_PORT },
       { protocol: "TCP", port: PLUGIN_RUNTIME_STATUS_PORT },
     ];
+    const sandboxTransport = this.sandboxHarnessTransport(revision, namespace);
     return [
       policy("allow-gateway-agent", {
         podSelector: gateway,
@@ -10010,9 +10055,24 @@ chmodSync(${JSON.stringify(nodeStatePath)}, 0o700);`;
                   })),
             ports:
               this.options.executionCluster === undefined
-                ? transport
+                ? sandboxTransport === undefined
+                  ? transport
+                  : [{ protocol: "TCP", port: PLUGIN_RUNTIME_STATUS_PORT }]
                 : [{ protocol: "TCP", port: 443 }],
           },
+          ...(sandboxTransport === undefined
+            ? []
+            : [
+                {
+                  to: [
+                    this.peer({
+                      namespace: sandboxTransport.peer.namespaceName,
+                      podLabels: sandboxTransport.peer.podLabels,
+                    }),
+                  ],
+                  ports: [{ protocol: "TCP", port: sandboxTransport.peer.port }],
+                },
+              ]),
         ],
       }),
       policy("allow-agent-runtime", {
@@ -10776,6 +10836,7 @@ chmodSync(${JSON.stringify(nodeStatePath)}, 0o700);`;
     workspaceSetup?: WorkspaceSetup,
     repositoryMaterial?: ResolvedRepositoryMaterialSpec,
     nativeRuntime?: NativeRuntimeSnapshot,
+    sandboxTransport?: SandboxHarnessTransport,
   ): ManagedKubernetesObject {
     if (nativeRuntime !== undefined && (embedded || role !== "agent")) {
       throw new ConfigurationFailure(
@@ -11148,10 +11209,15 @@ require("node:fs").rmSync("/harness-workspace-state/codex-home", { recursive: tr
           variables.push({
             name: "APP_SERVER_URL",
             value:
-              this.options.executionCluster === undefined
-                ? `ws://agent-${suffix}.${required(configuration?.harnessNamespace?.name, "Harness namespace")}.svc:${AGENT_TRANSPORT_PORT}`
-                : `wss://${this.options.executionCluster.harnessRouting.hostname}${this.harnessRoutePath(ownership)}`,
+              sandboxTransport !== undefined
+                ? sandboxTransport.url
+                : this.options.executionCluster === undefined
+                  ? `ws://agent-${suffix}.${required(configuration?.harnessNamespace?.name, "Harness namespace")}.svc:${AGENT_TRANSPORT_PORT}`
+                  : `wss://${this.options.executionCluster.harnessRouting.hostname}${this.harnessRoutePath(ownership)}`,
           });
+          if (sandboxTransport?.hostHeader !== undefined) {
+            variables.push({ name: "APP_SERVER_ROUTE_HOST", value: sandboxTransport.hostHeader });
+          }
         }
         if (configuration?.usesGatewayPasswordEnv === true) {
           variables.push(

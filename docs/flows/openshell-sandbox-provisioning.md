@@ -1,34 +1,30 @@
 ---
 created: "2026-09-21"
-updated: 2026-10-01
-last_updated_session: authoring-run/7769dc65-9827-4c91-a013-90a7ce60ffa1
+updated: 2026-10-02
+last_updated_session: authoring-run/8fe8dd0f-ac1a-4d42-862b-bce2b8d8701a
 ---
 
 # OpenShell Sandbox provisioning flow
 
 ## Overview
 
-The Kubernetes Compute Driver delegates dedicated Codex and native OpenClaw
-Harnesses to the selected OpenShell Sandbox Driver. One deployment-paired OpenShell Gateway uses
-an explicitly configured workspace mode. Operator mode is implemented: for each
-OCC Namespace, the Driver labels the Kubernetes namespace, reconciles rendered
-workspace-chart resources, and creates or adopts an OpenShell Workspace with
-the same physical name. Managed mode is recognized but fails before mutation.
-Sandbox requests are homed in the operator-mode Workspace.
+Kubernetes Compute delegates dedicated Codex and native OpenClaw Harnesses to
+the OpenShell Sandbox Driver. Its Gateway uses an explicit workspace mode. In
+operator mode, the Driver labels each OCC Namespace, reconciles workspace-chart
+resources, and creates or adopts a Workspace with the same name. Managed mode
+fails before mutation. Sandbox requests use the operator-mode Workspace.
 
-The model credential no longer needs a Secret projection: a
+The model credential uses a
 [credential source](credential-source-lifecycle.md) attaches an OpenShell
 provider to the Sandbox, and the supervisor proxy injects the key. The regular
-Agent workflow with stock OpenShell still stops before Sandbox creation because
+Agent workflow stops before Sandbox creation because
 `v0.1.3-pre.1` cannot accept the Secret-backed app-server token or projected workload
-identity. The verification-only compatibility path stages those inputs without
-changing the production fail-closed contract and completes real model turns
-inside the Sandbox.
+identity. The verification bridge stages those inputs and completes real model
+turns inside the Sandbox.
 
-The local Kubernetes development profile installs the pinned Gateway and
-renders the workspace chart into the Installation configuration, in either a
-Kubernetes-only or Compose control plane. Neither uses the verification-only
-compatibility projection.
+The Kubernetes development profile installs the pinned Gateway and renders the
+workspace chart into the Installation, with either Kubernetes or Compose control
+plane. Neither uses the compatibility projection.
 
 ## Entry Points
 
@@ -60,7 +56,8 @@ graph TD
   I -- "no: stock v0.1.3-pre.1" --> R
   I -. "verification bridge" .-> V{"<b>Harness</b>"}
   V -- "Codex" --> J["<b>Sandbox ready</b><br/>App-server route"]
-  J --> K["<b>Verify route</b><br/>Protected 401"]
+  J --> W["<b>Route through OpenShell</b><br/>Virtual Host"]
+  W --> K["<b>Verify route</b><br/>Protected 401"]
   K --> L["<b>Run model turn</b><br/>Sandbox loopback"]
   V -- "OpenClaw" --> T["<b>Sandbox ready</b><br/>No inbound exposure"]
   T --> U["<b>Run two sessions</b>"]
@@ -77,7 +74,7 @@ graph TD
   classDef gate fill:#F7F1E5,stroke:#B3A078,color:#514532,stroke-width:1px
   classDef blocked fill:#F3F4F6,stroke:#98A2AE,color:#44505F,stroke-width:1px
   class A,B,F state
-  class D,E,Q,H,J,K,L,M,N,O,P,T,U operation
+  class D,E,Q,H,J,W,K,L,M,N,O,P,T,U operation
   class C,G,I,S,V gate
   class X,R blocked
   linkStyle default stroke:#8B949E,stroke-width:1px
@@ -249,11 +246,19 @@ mounted by Kubernetes Compute. Any request that reaches
 the gateway without those shapes still fails closed. Any other gateway failure
 also prevents readiness.
 
+With `serviceRouting`, Compute uses OpenShell's published virtual Host and
+WebSocket route. Its NetworkPolicy admits the configured Gateway peer and
+limits direct Harness egress to plugin status. A mismatched returned Host fails
+provisioning.
+
 For private node routing, OpenShell's policy proxy opens the connection from its
 supervisor Pod rather than the Harness Pod. The Helm-owned Envoy NetworkPolicy
 therefore admits supervisor Pods only from tenant namespaces bearing the exact
 Gateway attachment label. OpenShell still restricts the destination and calling
-binary through the Sandbox network policy.
+binary through the Sandbox network policy. The Driver passes `allowedIps` as
+OpenShell's `allowed_ips` for an exact private Service VIP. The node route uses
+the full cluster DNS name so OpenShell's trusted resolver can resolve it
+without Kubernetes search domains.
 
 ### 5. Observe readiness or clean up
 
@@ -337,6 +342,10 @@ Kubernetes Compute delete the Kubernetes namespace.
 [keep this for the user to add notes. do not change between edits]
 
 ## Changelog
+
+- 2026-10-02 01:31: Documented the published service route; live OpenShift model-turn proof remains pending. (authoring-run/8fe8dd0f-ac1a-4d42-862b-bce2b8d8701a - c6cbe152f6e0c184a7b2b043e67c81dc54783886)
+
+- 2026-10-01 18:18: Documented private Service VIP policy serialization and full DNS names for node routing. (authoring-run/1f0b57c9-ffbf-436b-a836-ad4fccf69a63 - cc545eb53dbe5f83ad450e96dcf38cfdc7603a4a)
 
 - 2026-10-01 17:18: Documented bridge cleanup Job selector handling during revision replacement. (authoring-run/7769dc65-9827-4c91-a013-90a7ce60ffa1 - 7e872afc8e9e043308ef0a58f83408d9db34e105)
 
