@@ -1,0 +1,68 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: oce-image-builds
+parameters:
+  - name: REV
+    required: true
+  - name: NODE_BASE_IMAGE
+    value: docker.io/library/node:24-bookworm@sha256:934240a162082fd8b8a2f90cd5114446443f1eba1c5378f6687167ca405e6584
+objects:
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: oce-controller
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: oce-runtime
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: oce-controller
+    spec:
+      source:
+        type: Binary
+        binary: {}
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Dockerfile
+          buildArgs:
+            - name: NODE_BASE_IMAGE
+              value: ${NODE_BASE_IMAGE}
+            - name: OCC_BUILD_REVISION
+              value: ${REV}
+      output:
+        to:
+          kind: ImageStreamTag
+          name: oce-controller:${REV}
+        imageLabels:
+          - name: org.opencontainers.image.revision
+            value: ${REV}
+      triggers: []
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: oce-runtime
+    spec:
+      source:
+        type: Binary
+        binary: {}
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: deploy/runtime/Dockerfile
+          buildArgs:
+            - name: NODE_BASE_IMAGE
+              value: ${NODE_BASE_IMAGE}
+            - name: OCC_BUILD_REVISION
+              value: ${REV}
+      output:
+        to:
+          kind: ImageStreamTag
+          name: oce-runtime:${REV}
+        imageLabels:
+          - name: org.opencontainers.image.revision
+            value: ${REV}
+      triggers: []

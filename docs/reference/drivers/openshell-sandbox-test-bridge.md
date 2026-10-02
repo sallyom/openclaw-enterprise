@@ -25,7 +25,7 @@ drivers:
         serviceAuthorizationMode: bearerPassthrough
         compatibilityBridge:
           sandboxServiceAccountName: agent-<agent-hash>
-          runAsUser: 10001
+          runAsUser: <sandbox-runtime-uid>
 ```
 
 Keep the other required Driver fields from the [OpenShell SandboxDriver](openshell-sandbox.md#configuration).
@@ -37,9 +37,9 @@ without it, Secret-backed Harness environment entries fail closed.
 
 Grant the OCC worker namespaced `get`, `create`, `patch`, and `delete` on Jobs in
 the Agent's data namespace. Admit the Agent's ServiceAccount to run the
-bootstrap Job with its exact UID/GID, projected token, ConfigMap, Secret, and
-PVC mounts. On OpenShift, bind the needed SCC only to that ServiceAccount and
-review the Job Pod's `openshift.io/scc` annotation.
+bootstrap Job with the same UID/GID as the Sandbox process, plus its projected
+token, ConfigMap, Secret, and PVC mounts. On OpenShift, use the tenant
+namespace's assigned UID and verify that both Pods use `restricted-v2`.
 
 ## Credential lifetime and cleanup
 

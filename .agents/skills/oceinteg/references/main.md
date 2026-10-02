@@ -49,10 +49,14 @@ and the supported binding steps.
 
 Record a separate result for each selected topology and follow its setup:
 [EKS with Helm OCC](./setup-eks.md), [k3d with Helm OCC](./setup-k3d.md),
-or [k3d with Compose OCC](./setup-compose-k3d.md). Never transfer a pass across
+[k3d with Compose OCC](./setup-compose-k3d.md), or the
+[OpenShift/OpenShell test setup](./setup-openshift.md). Never transfer a pass across
 topologies. The default Compose-only preview cannot deploy Agents; the explicit
 Compose/Kubernetes profile is distinct and requires additional setup. Record
 its documented capability differences without counting substitutes as passes.
+The OpenShift setup covers a dedicated Codex test path; its CLI provisioning
+does not satisfy this scenario's Console-only requirement or replace the other
+acceptance checks below.
 
 Use the selected installation procedure with the following acceptance profile:
 

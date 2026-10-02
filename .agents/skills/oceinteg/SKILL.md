@@ -29,11 +29,14 @@ of main, not separately invokable scenarios.
 
 Choose one setup reference per selected topology before running main:
 
-| Topology                   | Setup                                                             |
-| -------------------------- | ----------------------------------------------------------------- |
-| EKS with Helm OCC          | [EKS setup](./references/setup-eks.md)                            |
-| Local k3d with Helm OCC    | [Kubernetes-only setup](./references/setup-k3d.md)                |
-| Local k3d with Compose OCC | [Compose and Kubernetes setup](./references/setup-compose-k3d.md) |
+| Topology                             | Setup                                                             |
+| ------------------------------------ | ----------------------------------------------------------------- |
+| EKS with Helm OCC                    | [EKS setup](./references/setup-eks.md)                            |
+| Local k3d with Helm OCC              | [Kubernetes-only setup](./references/setup-k3d.md)                |
+| Local k3d with Compose OCC           | [Compose and Kubernetes setup](./references/setup-compose-k3d.md) |
+| OpenShift with OpenShell (test only) | [OpenShift test setup](./references/setup-openshift.md)           |
 
 These references sequence the user-facing guides; those guides own commands
 and supported configuration. Setup references are not additional invocations.
+The OpenShift reference covers a dedicated Codex/OpenShell test path; it does
+not waive main's Console-only provisioning or other acceptance criteria.

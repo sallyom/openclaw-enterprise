@@ -1,0 +1,262 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oce-agent-control-ui-oauth
+  namespace: ${GATEWAY_NAMESPACE}
+  annotations:
+    serviceaccounts.openshift.io/oauth-redirectreference.control-ui: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"oce-agent-control-ui-oauth"}}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oce-agent-control-ui-identity-proxy
+  namespace: ${GATEWAY_NAMESPACE}
+data:
+  envoy.yaml: |
+    static_resources:
+      listeners:
+        - name: oauth_upstream
+          address:
+            socket_address: { address: 127.0.0.1, port_value: 8081 }
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: oauth_upstream
+                    upgrade_configs:
+                      - upgrade_type: websocket
+                    route_config:
+                      name: gateway
+                      virtual_hosts:
+                        - name: gateway
+                          domains: ["*"]
+                          routes:
+                            - match: { prefix: "/" }
+                              route: { cluster: gateway, timeout: 0s }
+                              request_headers_to_remove:
+                                - authorization
+                                - cookie
+                                - x-api-key
+                                - x-occ-session-key
+                                - x-openclaw-scopes
+                              request_headers_to_add:
+                                - header: { key: x-occ-identity, value: occ-workspace-files }
+                                  append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                    http_filters:
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+      clusters:
+        - name: gateway
+          connect_timeout: 3s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+            cluster_name: gateway
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: ${GATEWAY_SERVICE}.${GATEWAY_NAMESPACE}.svc
+                          port_value: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oce-agent-control-ui-oauth
+  namespace: ${GATEWAY_NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oce-agent-control-ui-oauth
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oce-agent-control-ui-oauth
+    spec:
+      serviceAccountName: oce-agent-control-ui-oauth
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth-proxy
+          image: ${OAUTH_PROXY_IMAGE}
+          args:
+            - --provider=openshift
+            - --openshift-service-account=oce-agent-control-ui-oauth
+            - --upstream=http://127.0.0.1:8081/
+            - --http-address=0.0.0.0:4180
+            - --https-address=
+            - --email-domain=*
+            - --cookie-secret-file=/etc/oauth/session_secret
+            - --openshift-sar=${OAUTH_SAR}
+            - --pass-basic-auth=false
+            - --pass-user-headers=false
+            - --pass-access-token=false
+            - --proxy-websockets=true
+          ports:
+            - name: oauth
+              containerPort: 4180
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /oauth/healthz
+              port: oauth
+          livenessProbe:
+            httpGet:
+              path: /oauth/healthz
+              port: oauth
+          volumeMounts:
+            - name: cookie-secret
+              mountPath: /etc/oauth
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+        - name: identity-proxy
+          image: ${CONTROL_UI_ENVOY_IMAGE}
+          args: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warning"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: identity-proxy-config
+              mountPath: /etc/envoy
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: cookie-secret
+          secret:
+            secretName: oce-agent-control-ui-oauth-cookie
+        - name: identity-proxy-config
+          configMap:
+            name: oce-agent-control-ui-identity-proxy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oce-agent-control-ui-oauth
+  namespace: ${GATEWAY_NAMESPACE}
+spec:
+  selector:
+    app.kubernetes.io/name: oce-agent-control-ui-oauth
+  ports:
+    - name: oauth
+      port: 4180
+      targetPort: oauth
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: oce-agent-control-ui-oauth
+  namespace: ${GATEWAY_NAMESPACE}
+  annotations:
+    haproxy.router.openshift.io/timeout: 3600s
+spec:
+  host: ${CONTROL_UI_HOST}
+  to:
+    kind: Service
+    name: oce-agent-control-ui-oauth
+  port:
+    targetPort: oauth
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-agent-control-ui-oauth
+  namespace: ${GATEWAY_NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: oce-agent-control-ui-oauth
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-ingress
+          podSelector:
+            matchLabels:
+              ingresscontroller.operator.openshift.io/deployment-ingresscontroller: default
+      ports:
+        - protocol: TCP
+          port: 4180
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
+          podSelector:
+            matchLabels:
+              dns.operator.openshift.io/daemonset-dns: default
+        - ipBlock:
+            cidr: ${DNS_CIDR_0}
+        - ipBlock:
+            cidr: ${DNS_CIDR_1}
+        - ipBlock:
+            cidr: ${DNS_CIDR_2}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 5353
+        - protocol: TCP
+          port: 5353
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ${GATEWAY_SERVICE}
+      ports:
+        - protocol: TCP
+          port: 8080
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-agent-control-ui-from-oauth
+  namespace: ${GATEWAY_NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ${GATEWAY_SERVICE}
+      openclaw.dev/workload-role: gateway
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: oce-agent-control-ui-oauth
+      ports:
+        - protocol: TCP
+          port: 8080

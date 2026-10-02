@@ -147,8 +147,8 @@ domain and exact OpenShell Gateway Pod peer. `kubernetes.legacyReadOnlyRelay:
 true` makes Codex listen on a Unix socket; a loopback relay checks the
 app-server bearer token before opening it. This option requires
 `serviceAuthorizationMode: bearerPassthrough` so OpenShell preserves the header.
-The OpenShift example enables all three settings. A live model turn remains
-unverified.
+The OpenShift test procedure enables all three settings and verifies a real
+Codex model turn through the authenticated Unix-socket relay.
 
 Do not add a policy for the model endpoint. The credential source's provider
 profile allows `api.openai.com` with TLS inspection, and an uninspected rule for

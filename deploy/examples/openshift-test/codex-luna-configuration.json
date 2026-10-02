@@ -1,0 +1,52 @@
+{
+  "kind": "agent",
+  "values": {
+    "gateway": {
+      "mode": "local",
+      "bind": "lan",
+      "controlUi": {
+        "enabled": true,
+        "allowedOrigins": ["http://127.0.0.1:18789", "http://localhost:18789"]
+      },
+      "auth": {
+        "password": { "source": "env", "provider": "default", "id": "OPENCLAW_GATEWAY_PASSWORD" }
+      },
+      "http": { "endpoints": { "chatCompletions": { "enabled": true } } }
+    },
+    "agents": {
+      "defaults": {
+        "model": "codex/gpt-6-luna",
+        "models": {
+          "codex/gpt-6-luna": { "agentRuntime": { "id": "codex" } }
+        }
+      }
+    },
+    "models": {
+      "providers": {
+        "codex": {
+          "baseUrl": "http://127.0.0.1:9",
+          "api": "openai-responses",
+          "models": [{ "id": "gpt-6-luna", "name": "gpt-6-luna" }]
+        }
+      }
+    },
+    "plugins": {
+      "allow": ["codex"],
+      "entries": {
+        "codex": {
+          "enabled": true,
+          "config": {
+            "appServer": {
+              "mode": "guardian",
+              "approvalPolicy": "on-request",
+              "sandbox": "read-only",
+              "transport": "websocket",
+              "url": "${APP_SERVER_URL}",
+              "authToken": "${APP_SERVER_TOKEN}"
+            }
+          }
+        }
+      }
+    }
+  }
+}

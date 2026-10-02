@@ -475,6 +475,35 @@
                     "label": "Kubernetes"
                   },
                   {
+                    "group": "OpenShift Test",
+                    "pages": [
+                      {
+                        "page": "guides/deploy/openshift/README",
+                        "label": "Overview"
+                      },
+                      {
+                        "page": "guides/deploy/openshift/openshift-test",
+                        "label": "Cluster Preparation"
+                      },
+                      {
+                        "page": "guides/deploy/openshift/openshift-test-install",
+                        "label": "OCC Installation"
+                      },
+                      {
+                        "page": "guides/deploy/openshift/openshift-test-routing",
+                        "label": "Agent Routing"
+                      },
+                      {
+                        "page": "guides/deploy/openshift/openshift-test-agent",
+                        "label": "Dedicated Codex Agent"
+                      },
+                      {
+                        "page": "guides/deploy/openshift/openshift-test-control-ui",
+                        "label": "Agent Control UI"
+                      }
+                    ]
+                  },
+                  {
                     "page": "guides/deploy/eks",
                     "label": "Amazon EKS"
                   },

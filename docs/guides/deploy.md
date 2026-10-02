@@ -37,6 +37,8 @@ Choose the guide for your cluster:
   cluster, storage, networking, and PostgreSQL.
 - [Amazon EKS](deploy/eks.md): prepare AWS managed Kubernetes, node groups,
   VPC networking, EBS storage, and optional RDS PostgreSQL.
+- [OpenShift test cluster](deploy/openshift/README.md): prepare the cluster and
+  OpenShell gateway, then install OCC and deploy a dedicated Codex Agent.
 
 Both paths use the same Helm chart and shared installation procedure. Cluster
 hosting does not select the Agent model provider.

@@ -1,0 +1,17 @@
+# Replace the host and supply a reviewed certificate policy before applying.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: openclaw-enterprise-console
+  namespace: openclaw-system
+spec:
+  host: console.oce.example.invalid
+  to:
+    kind: Service
+    name: openclaw-enterprise-api
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

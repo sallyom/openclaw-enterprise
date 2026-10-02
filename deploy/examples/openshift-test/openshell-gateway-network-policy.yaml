@@ -1,0 +1,44 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openshell-gateway-ingress
+  namespace: openshell-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: openshell-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openclaw-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openclaw-enterprise
+              app.kubernetes.io/component: api
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openclaw-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openclaw-enterprise
+              app.kubernetes.io/component: worker
+        - namespaceSelector:
+            matchLabels:
+              openshell.ai/openclaw-workspace: "true"
+          podSelector:
+            matchLabels:
+              openshell.ai/boundary-role: supervisor
+        - namespaceSelector:
+            matchExpressions:
+              - key: openclaw.dev/gateway-namespace
+                operator: Exists
+          podSelector:
+            matchLabels:
+              openclaw.dev/workload-role: gateway
+              app.kubernetes.io/managed-by: openclaw-enterprise
+      ports:
+        - protocol: TCP
+          port: 8080
