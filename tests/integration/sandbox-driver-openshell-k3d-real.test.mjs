@@ -1525,6 +1525,7 @@ function createIntegrationSandboxDriverFactory(
   operatorKubernetes,
   { enableCompatibilityBridges },
 ) {
+  const useDriverBridge = enableCompatibilityBridges && selectedHarness === "codex";
   const gatewayState = new Map();
   const endpointClients = new Map();
   let backendDrivers;
@@ -1667,6 +1668,13 @@ function createIntegrationSandboxDriverFactory(
         ...options.gateway.readiness,
         serviceName: `openshell-${hash(namespaceName, 10)}`,
       };
+      if (useDriverBridge) {
+        options.kubernetes.compatibilityBridge = {
+          sandboxServiceAccountName: requirements?.serviceAccountName ?? "cleanup-only",
+          runAsUser: 10001,
+        };
+        options.kubernetes.serviceAuthorizationMode = "bearerPassthrough";
+      }
       if (requirements !== undefined) {
         const workspace = requirements.workspaceMounts.find(
           ({ mountPath }) => mountPath === workspaceMountPath,
@@ -1674,7 +1682,7 @@ function createIntegrationSandboxDriverFactory(
         assert.ok(workspace, "OpenShell requires the Agent shared workspace mount.");
         options.kubernetes.sandboxDataMount = {
           claimName: workspace.claimName,
-          subPath: workspace.subPath,
+          subPath: useDriverBridge ? bridgedWorkspaceSubPath : workspace.subPath,
           mountPath: "/sandbox/enterprise",
           readOnly: false,
         };
@@ -1696,7 +1704,7 @@ function createIntegrationSandboxDriverFactory(
         context === undefined
           ? clientForEndpoint(endpoint)
           : integrationGatewayClient(GrpcOpenShellGatewayClient, endpoint, context, {
-              enableCompatibilityBridge: enableCompatibilityBridges,
+              enableCompatibilityBridge: enableCompatibilityBridges && !useDriverBridge,
               observeServiceUrl: (serviceUrl) => {
                 harnessServiceUrls.set(context.revision.id, serviceUrl);
               },
@@ -1757,6 +1765,18 @@ function createIntegrationSandboxDriverFactory(
             });
             // The stock proof hands the real Driver exactly what Compute rendered so unsupported
             // projection shapes fail closed before OpenShell creates provider resources.
+            return await delegate(
+              context.requirements,
+              context.namespace.name,
+              endpoint,
+              context,
+            ).provisionHarness(context);
+          }
+
+          if (useDriverBridge) {
+            const endpoint = await endpointForNamespace(context, {
+              sandboxServiceAccountName: context.requirements.serviceAccountName,
+            });
             return await delegate(
               context.requirements,
               context.namespace.name,
@@ -3123,9 +3143,8 @@ test(
         "OpenShell integration: checking create-time service exposure authentication boundary.\n",
       );
       assert.match(topology.harnessServiceUrl, /^https?:\/\//);
-      // The Driver omits authorization_mode, so OpenShell defaults to STRIP before proxying. An
-      // authentication rejection from the protected Codex endpoint proves the route reaches the
-      // real app server without weakening its bearer-token requirement or accepting a gateway 5xx.
+      // The test-cluster Driver bridge selects bearer passthrough. A WebSocket 101 proves the
+      // protected Codex app server received the exact token through OpenShell's service route.
       let lastServiceObservation = "no response";
       try {
         await waitFor("OpenShell create-time Harness service exposure", async () => {
@@ -3135,7 +3154,7 @@ test(
               topology.appServerToken,
             );
             lastServiceObservation = `HTTP ${status}`;
-            return [401, 403].includes(status) ? true : undefined;
+            return status === 101 ? true : undefined;
           } catch (error) {
             lastServiceObservation = error instanceof Error ? error.message : String(error);
             return undefined;

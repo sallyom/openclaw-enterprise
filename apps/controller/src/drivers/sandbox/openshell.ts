@@ -35,6 +35,10 @@ import {
   OpenShellWorkspaceAlreadyExistsError,
   toProtobufStruct,
 } from "./openshell-gateway-client.ts";
+import {
+  cleanupOpenShellCompatibility,
+  prepareOpenShellCompatibility,
+} from "./openshell-compatibility.ts";
 
 type ConfigurationRecord = Readonly<Record<string, unknown>>;
 
@@ -87,6 +91,12 @@ export interface OpenShellSandboxDriverOptions {
     };
     readonly agentResources?: ConfigurationRecord;
     readonly userNamespaces?: boolean;
+    readonly serviceAuthorizationMode?: "bearerPassthrough";
+    /** Temporary test-cluster projection bridge for stock OpenShell v0.1.3-pre.1. */
+    readonly compatibilityBridge?: {
+      readonly sandboxServiceAccountName: string;
+      readonly runAsUser: number;
+    };
   };
   readonly policy: {
     readonly filesystem?: {
@@ -828,10 +838,14 @@ function sandboxSpec(
     containers: {
       agent: {
         resources: options.kubernetes.agentResources ?? {},
-        volume_mounts: [...volumeMounts, servicePrincipal.mount],
+        volume_mounts: options.kubernetes.compatibilityBridge
+          ? volumeMounts
+          : [...volumeMounts, servicePrincipal.mount],
       },
     },
-    volumes: [...workspace.volumes, servicePrincipal.volume],
+    volumes: options.kubernetes.compatibilityBridge
+      ? workspace.volumes
+      : [...workspace.volumes, servicePrincipal.volume],
   };
   return {
     log_level: options.logLevel ?? "info",
@@ -922,6 +936,33 @@ function validateOptions(options: OpenShellSandboxDriverOptions): void {
     throw new OpenShellSandboxConfigurationFailure(
       "OpenShell serviceAccount mode must be gatewayConfigured.",
     );
+  }
+  if (
+    options.kubernetes.serviceAuthorizationMode !== undefined &&
+    options.kubernetes.serviceAuthorizationMode !== "bearerPassthrough"
+  ) {
+    throw new OpenShellSandboxConfigurationFailure(
+      "OpenShell serviceAuthorizationMode must be bearerPassthrough when configured.",
+    );
+  }
+  if (options.kubernetes.compatibilityBridge !== undefined) {
+    nonempty(
+      options.kubernetes.compatibilityBridge.sandboxServiceAccountName,
+      "OpenShell compatibility sandbox ServiceAccount name",
+    );
+    if (
+      !Number.isSafeInteger(options.kubernetes.compatibilityBridge.runAsUser) ||
+      options.kubernetes.compatibilityBridge.runAsUser < 1
+    ) {
+      throw new OpenShellSandboxConfigurationFailure(
+        "OpenShell compatibility Job runAsUser must be a positive UID.",
+      );
+    }
+    if (options.kubernetes.serviceAuthorizationMode !== "bearerPassthrough") {
+      throw new OpenShellSandboxConfigurationFailure(
+        "OpenShell compatibility bridge requires bearerPassthrough for the Codex app server.",
+      );
+    }
   }
   configurationObject(options.kubernetes.sandboxDataMount, "OpenShell sandbox data mount");
   validateSandboxDataMount(options.kubernetes.sandboxDataMount);
@@ -1144,10 +1185,27 @@ export class OpenShellSandboxDriver implements SandboxDriver {
       );
     }
     labels(context.requirements.labels, "Harness workload labels");
+    const compatibility = this.options.kubernetes.compatibilityBridge;
+    const requirements = compatibility
+      ? await prepareOpenShellCompatibility(
+          context,
+          kubernetes(context),
+          compatibility.sandboxServiceAccountName,
+          compatibility.runAsUser,
+        )
+      : context.requirements;
     const sandbox = this.sandboxRef(context);
     const codex = context.revision.harness.id === "codex";
     const serviceExposures = codex
-      ? [{ service: "", targetPort: harnessPort(context.requirements) }]
+      ? [
+          {
+            service: "",
+            targetPort: harnessPort(requirements),
+            ...(this.options.kubernetes.serviceAuthorizationMode === undefined
+              ? {}
+              : { authorizationMode: this.options.kubernetes.serviceAuthorizationMode }),
+          },
+        ]
       : [];
     let created;
     try {
@@ -1156,18 +1214,24 @@ export class OpenShellSandboxDriver implements SandboxDriver {
           name: sandbox.resourceName,
           workspace: workspaceName(context.namespace),
           requestId: requestId(context.revision.id),
-          labels: context.requirements.labels,
+          labels: requirements.labels,
           annotations: {
             "openclaw.dev/namespace-id": context.revision.namespaceId,
             "openclaw.dev/agent-id": context.revision.agentId,
             "openclaw.dev/revision-id": context.revision.id,
           },
-          spec: sandboxSpec(this.options, context.requirements),
+          spec: sandboxSpec(this.options, requirements),
           serviceExposures,
         },
         context.signal,
       );
     } catch (error) {
+      if (compatibility !== undefined) {
+        await cleanupOpenShellCompatibility(
+          { ...context, revision: context.revision },
+          kubernetes(context),
+        );
+      }
       if (error instanceof OpenShellSandboxAlreadyExistsError) {
         throw new OpenShellSandboxConfigurationFailure(
           "OpenShell Sandbox already exists without a replayable create-time service URL; remove the stale Sandbox before retrying.",
@@ -1211,6 +1275,12 @@ export class OpenShellSandboxDriver implements SandboxDriver {
         },
         context.signal,
       );
+      if (this.options.kubernetes.compatibilityBridge !== undefined) {
+        await cleanupOpenShellCompatibility(
+          { ...context, revision: context.revision },
+          kubernetes(context),
+        );
+      }
       return;
     }
     this.requireOperatorWorkspaceMode("clean up a Namespace");

@@ -219,7 +219,9 @@ their ownership and replacement routes before removing stale policies, or
 recreate the disposable fixture. Reusing a Sandbox by name does not update its
 template.
 
-Positive mode bridges those shapes only inside this test. Its bootstrap Job
+Positive Codex mode selects the Driver's explicit test-cluster compatibility
+bridge through the regular Agent workflow. Native OpenClaw mode retains the
+fixture-only bridge. The bootstrap Job
 mounts the app-server token Secret reference, immutable `runtime.json` and
 `config.toml` ConfigMap entries, and an audience-bound ServiceAccount token. It
 copies them into private PVC subpaths. The compatibility request mounts the

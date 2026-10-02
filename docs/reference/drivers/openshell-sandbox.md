@@ -10,10 +10,9 @@ Agents, revisions, Namespaces, routing, credentials, and authorization.
 Secret-backed app-server token or projected workload identity a dedicated Agent
 requires. The model API key is no longer a blocker: the paired
 [OpenShell Credential Gateway](openshell-credential-gateway.md) delivers it. The
-Enterprise Driver rejects deployment rather than starting an incorrectly
-credentialed Harness. The real integration keeps that rejection proof and has a
-separate verification-only compatibility bridge for a real in-Sandbox model
-turn. That bridge is not a supported deployment path.
+Enterprise Driver rejects these revisions by default. A
+[test-cluster bridge](openshell-sandbox-test-bridge.md) stages the missing inputs
+through a Job and PVC; it is not a production path.
 
 Embedded OpenClaw also fails when OpenShell is selected; the integration is
 designed only for dedicated Harnesses. Kubernetes Compute requires dedicated
@@ -143,6 +142,10 @@ drivers:
                 tls: skip
 ```
 
+The [test-cluster bridge](openshell-sandbox-test-bridge.md) requires the same
+Agent ServiceAccount in the gateway and Driver. Its copied token expires;
+production leaves the option unset.
+
 Do not add a policy for the model endpoint. The credential source's provider
 profile allows `api.openai.com` with TLS inspection, and an uninspected rule for
 the same host conflicts with it.
@@ -263,13 +266,12 @@ so retries receive the same service URL. The Driver accepts only an HTTP or HTTP
 origin, rewrites its port to the configured gateway endpoint for local
 port-forwards, and requires a valid route before provisioning succeeds.
 
-OCE omits `authorization_mode`, so OpenShell strips `Authorization` before proxying.
-Upstream v0.1.3-pre.1 supports `BEARER_PASSTHROUGH`, which OCE leaves unselected.
-Codex accepts only bearer authorization. The integration expects the protected
-app server's `401` through this route and runs its real model turn on Pod
-loopback. It does not treat the test bridge as supported or replace Compute's
-Agent Service. A Sandbox without a replayable Create receipt must be removed;
-the Driver does not mutate it with a later `ExposeService` call.
+OCE omits `authorization_mode` by default, so OpenShell strips `Authorization`
+before proxying. The explicit test-cluster `serviceAuthorizationMode` option
+selects upstream v0.1.3-pre.1 `BEARER_PASSTHROUGH` for Codex. The test-cluster
+bridge expects a WebSocket upgrade with the app-server token and leaves
+Compute's Agent Service in place. A Sandbox without a replayable Create
+receipt must be removed; the Driver does not add a later `ExposeService` call.
 
 Native OpenClaw does not accept inbound Harness traffic. Its enrolled node host
 opens the connection to the Agent Gateway, so the Driver sends an empty service
@@ -343,8 +345,8 @@ and Driver integration:
 - OpenShell gateway authentication must be bound to the trusted caller and the
   requested Sandbox or Pod identity.
 - For Codex, OpenShell service routing must securely carry bearer authorization
-  without exposing gateway credentials. The current Driver uses OpenShell's default `STRIP` service authorization mode;
-  selecting upstream's `BEARER_PASSTHROUGH` mode remains unimplemented.
+  without exposing gateway credentials. The test-cluster bridge selects
+  upstream's `BEARER_PASSTHROUGH`; production needs the same authenticated path.
 
 If any of these conditions are unavailable, OpenShell-selected deployments must
 fail closed instead of launching an unsandboxed or incorrectly credentialed

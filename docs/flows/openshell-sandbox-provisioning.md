@@ -1,7 +1,7 @@
 ---
 created: "2026-09-21"
-updated: 2026-09-30
-last_updated_session: authoring-run/b158c89c-3010-42ae-95b4-350b05de7441
+updated: 2026-10-01
+last_updated_session: authoring-run/7769dc65-9827-4c91-a013-90a7ce60ffa1
 ---
 
 # OpenShell Sandbox provisioning flow
@@ -190,8 +190,22 @@ which v0.1.3-pre.1 defines as an automatic inspection alias; use `skip` instead.
 least one executable path and sends those binary identities with its endpoints.
 
 The regular Harness requirements still contain the Secret-backed
-`APP_SERVER_TOKEN`. `environment` rejects it before any gateway mutation, so the
-candidate revision remains inactive. Requests without such entries continue.
+`APP_SERVER_TOKEN`. Without the explicit test-cluster bridge, `environment`
+rejects it before any gateway mutation, so the candidate revision remains
+inactive. With the bridge selected, `provisionHarness` calls
+`apps/controller/src/drivers/sandbox/openshell-compatibility.ts:prepareOpenShellCompatibility`.
+That function requires the configured gateway sandbox ServiceAccount to equal
+Compute's Agent ServiceAccount, runs an Agent-owned bootstrap Job, and waits for
+its success. The Job copies the two Secret values, immutable plugin-runtime
+files, and an audience-bound ServiceAccount token to revision-scoped PVC paths.
+The Driver substitutes read-only PVC mounts and a command bootstrap for the
+unsupported Secret and projected-volume shapes, then asks OpenShell to create
+the Sandbox. A bootstrap or create failure starts a cleanup Job; revision
+retirement deletes the Sandbox before removing the copied credentials. The
+cleanup Job reuses the bootstrap Pod template but removes the old Job's
+Kubernetes-assigned selector labels so the new Job can receive its own. A
+cleanup failure leaves replacement preparation pending. The copied token is
+not refreshed during a running revision.
 `sandboxProviders` appends each attachment to the static `providers` list and
 rejects a name outside the OCC `oce-cs-` shape or one that repeats a static
 provider. The development profile and real-runtime fixture bind the provider
@@ -215,7 +229,9 @@ enrollment CA.
 
 The client sends the Sandbox identity, spec, Namespace Workspace scope, and
 revision UUID as `request_id`. Codex requests one unnamed exposure for
-`APP_SERVER_PORT` and requires its `service_urls` entry. Native OpenClaw connects
+`APP_SERVER_PORT` and requires its `service_urls` entry. The explicit
+test-cluster bridge selects bearer passthrough for that exposure; omission
+keeps upstream's authorization-strip default. Native OpenClaw connects
 outbound, so it requests no exposure and rejects any returned URL. A replay
 returns the same result; a Sandbox that predates replayable creation fails.
 
@@ -294,7 +310,7 @@ Kubernetes Compute delete the Kubernetes namespace.
   workload token in revision-specific PVC subpaths, never the model key. The
   test asserts that Harness processes hold only the OpenShell placeholder. The provider-owned
   Sandbox exposes its app-server port at create time. The test observes the
-  protected app server's authentication rejection because the Driver omits the service authorization mode and OpenShell defaults to `STRIP`,
+  protected app server's authentication rejection when the test-cluster bridge is unset and OpenShell defaults to `STRIP`,
   then runs the real model and tool checks from inside the Pod. This mode proves
   v0.1.3-pre.1 containment, the Compute-created node route, Helm NetworkPolicy
   enforcement, exposed-route reachability, and lifecycle behavior. It does not
@@ -321,6 +337,8 @@ Kubernetes Compute delete the Kubernetes namespace.
 [keep this for the user to add notes. do not change between edits]
 
 ## Changelog
+
+- 2026-10-01 17:18: Documented bridge cleanup Job selector handling during revision replacement. (authoring-run/7769dc65-9827-4c91-a013-90a7ce60ffa1 - 7e872afc8e9e043308ef0a58f83408d9db34e105)
 
 - 2026-09-30 21:14: Updated the OpenShell source, images, charts, and wire fixture to v0.1.3-pre.1 while preserving the default service authorization and fail-closed projection boundaries. (authoring-run/b158c89c-3010-42ae-95b4-350b05de7441 - 37bbee705ea3808ad000413dd54bdcc718980179)
 

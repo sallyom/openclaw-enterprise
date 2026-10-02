@@ -28,6 +28,7 @@ export interface OpenShellSandboxCreateRequest {
   readonly serviceExposures: readonly {
     readonly service: string;
     readonly targetPort: number;
+    readonly authorizationMode?: "bearerPassthrough";
   }[];
 }
 
@@ -703,10 +704,15 @@ export class GrpcOpenShellGatewayClient implements OpenShellGatewayClient {
           labels: { ...request.labels },
           annotations: { ...request.annotations },
           spec: request.spec,
-          service_exposures: request.serviceExposures.map(({ service, targetPort }) => ({
-            service,
-            target_port: targetPort,
-          })),
+          service_exposures: request.serviceExposures.map(
+            ({ service, targetPort, authorizationMode }) => ({
+              service,
+              target_port: targetPort,
+              ...(authorizationMode === "bearerPassthrough"
+                ? { authorization_mode: "SERVICE_AUTHORIZATION_MODE_BEARER_PASSTHROUGH" }
+                : {}),
+            }),
+          ),
         },
         signal,
       );

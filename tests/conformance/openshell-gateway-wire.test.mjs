@@ -62,7 +62,9 @@ test("OpenShell client serializes v0.1.3-pre.1 create-time service exposure", as
       requestId: "7dfed2b8-8cef-4513-ab04-020baf3ccbf3",
       labels: { owner: "openclaw" },
       annotations: {},
-      serviceExposures: [{ service: "", targetPort: 18_790 }],
+      serviceExposures: [
+        { service: "", targetPort: 18_790, authorizationMode: "bearerPassthrough" },
+      ],
       spec: {
         policy: {
           network_policies: {
@@ -102,8 +104,14 @@ test("OpenShell client serializes v0.1.3-pre.1 create-time service exposure", as
       selection: "workspace",
     });
     assert.equal(createRequests[0].request_id, request.requestId);
-    // Omission keeps upstream's STRIP default; this upgrade does not enable bearer passthrough.
-    assert.deepEqual(createRequests[0].service_exposures, [{ service: "", target_port: 18_790 }]);
+    // The exposed app server needs the incoming bearer token after Gateway authorization.
+    assert.deepEqual(createRequests[0].service_exposures, [
+      {
+        service: "",
+        target_port: 18_790,
+        authorization_mode: "SERVICE_AUTHORIZATION_MODE_BEARER_PASSTHROUGH",
+      },
+    ]);
     assert.deepEqual(createRequests[0].spec.policy.network_policies.model.endpoints[0], {
       host: "api.openai.com",
       ports: [443],
