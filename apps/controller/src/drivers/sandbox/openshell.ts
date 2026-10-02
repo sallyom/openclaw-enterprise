@@ -99,6 +99,7 @@ export interface OpenShellSandboxDriverOptions {
     readonly agentResources?: ConfigurationRecord;
     readonly userNamespaces?: boolean;
     readonly serviceAuthorizationMode?: "bearerPassthrough";
+    readonly legacyReadOnlyRelay?: boolean;
     /** Temporary test-cluster projection bridge for stock OpenShell v0.1.3-pre.1. */
     readonly compatibilityBridge?: {
       readonly sandboxServiceAccountName: string;
@@ -971,6 +972,23 @@ function validateOptions(options: OpenShellSandboxDriverOptions): void {
       "OpenShell serviceAuthorizationMode must be bearerPassthrough when configured.",
     );
   }
+  if (
+    options.kubernetes.legacyReadOnlyRelay !== undefined &&
+    typeof options.kubernetes.legacyReadOnlyRelay !== "boolean"
+  ) {
+    throw new OpenShellSandboxConfigurationFailure(
+      "OpenShell legacyReadOnlyRelay must be a boolean.",
+    );
+  }
+  if (
+    options.kubernetes.legacyReadOnlyRelay === true &&
+    (options.gateway.serviceRouting === undefined ||
+      options.kubernetes.serviceAuthorizationMode !== "bearerPassthrough")
+  ) {
+    throw new OpenShellSandboxConfigurationFailure(
+      "OpenShell legacyReadOnlyRelay requires serviceRouting and bearerPassthrough.",
+    );
+  }
   if (options.kubernetes.compatibilityBridge !== undefined) {
     nonempty(
       options.kubernetes.compatibilityBridge.sandboxServiceAccountName,
@@ -1222,7 +1240,7 @@ export class OpenShellSandboxDriver implements SandboxDriver {
     }
     labels(context.requirements.labels, "Harness workload labels");
     const compatibility = this.options.kubernetes.compatibilityBridge;
-    const requirements = compatibility
+    const bridgedRequirements = compatibility
       ? await prepareOpenShellCompatibility(
           context,
           kubernetes(context),
@@ -1232,6 +1250,16 @@ export class OpenShellSandboxDriver implements SandboxDriver {
       : context.requirements;
     const sandbox = this.sandboxRef(context);
     const codex = context.revision.harness.id === "codex";
+    const requirements =
+      codex && this.options.kubernetes.legacyReadOnlyRelay === true
+        ? {
+            ...bridgedRequirements,
+            environment: [
+              ...bridgedRequirements.environment,
+              { name: "APP_SERVER_UNIX_RELAY", value: "true" },
+            ],
+          }
+        : bridgedRequirements;
     const serviceExposures = codex
       ? [
           {

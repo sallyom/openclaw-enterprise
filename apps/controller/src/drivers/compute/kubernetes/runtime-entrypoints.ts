@@ -2898,9 +2898,11 @@ function forwardCodexStderr(stream) {
 `;
 
 export const AGENT_RUNTIME_ENTRYPOINT = String.raw`
-const { createHash } = require("node:crypto");
+const { createHash, timingSafeEqual } = require("node:crypto");
 const { mkdirSync, mkdtempSync, rmSync } = require("node:fs");
 const { spawn, spawnSync } = require("node:child_process");
+const { createServer } = require("node:http");
+const { connect } = require("node:net");
 const { performance } = require("node:perf_hooks");
 
 ${PLUGIN_RUNTIME_HELPERS}
@@ -3167,6 +3169,10 @@ publishRuntimeReady();
 // Everything before this line delays the Codex app-server.
 logStartupPhase("native-spawn", startupPhaseOrigin);
 const digest = createHash("sha256").update(process.env.APP_SERVER_TOKEN).digest("hex");
+// TODO: Remove this relay once OpenShell can forward Codex's TCP listener on
+// OpenShift without the legacy_read_only accept4 restriction.
+const unixRelay = process.env.APP_SERVER_UNIX_RELAY === "true";
+const unixSocket = process.env.CODEX_HOME + "/app-server.sock";
 const child = spawn(
   "codex",
   [
@@ -3185,16 +3191,59 @@ const child = spawn(
     ...(loginMode === "oauth" ? ["-c", "cli_auth_credentials_store=file"] : []),
     "app-server",
     "--listen",
-    "ws://0.0.0.0:" + process.env.APP_SERVER_PORT,
-    "--ws-auth",
-    "capability-token",
-    "--ws-token-sha256",
-    digest,
+    unixRelay ? "unix://" + unixSocket : "ws://0.0.0.0:" + process.env.APP_SERVER_PORT,
+    ...(unixRelay ? [] : ["--ws-auth", "capability-token", "--ws-token-sha256", digest]),
   ],
   // stdout is the protocol stream; stderr passes through the span-noise filter.
   { stdio: ["inherit", "inherit", "pipe"], cwd: "/home/node/workspace", env: codexChildEnvironment() },
 );
 forwardTermination(child);
+if (unixRelay) {
+  // The Unix app-server authenticates through socket permissions. This TCP-facing
+  // relay must authenticate each WebSocket upgrade before opening that socket.
+  const expected = Buffer.from(digest, "hex");
+  const relay = createServer((_request, response) => {
+    response.writeHead(404).end();
+  });
+  relay.on("upgrade", (request, socket, head) => {
+    const authorization = request.rawHeaders.filter((value, index) =>
+      index % 2 === 0 && value.toLowerCase() === "authorization");
+    const received = request.headers.authorization;
+    const token = typeof received === "string" && received.startsWith("Bearer ")
+      ? received.slice(7) : "";
+    const actual = createHash("sha256").update(token).digest();
+    if (request.method !== "GET" || authorization.length !== 1 ||
+        token.length === 0 || !timingSafeEqual(actual, expected)) {
+      socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    const upstream = connect(unixSocket);
+    let connected = false;
+    upstream.once("error", () => {
+      if (!socket.destroyed) {
+        if (connected) socket.destroy();
+        else socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
+      }
+    });
+    socket.once("error", () => upstream.destroy());
+    socket.once("close", () => upstream.destroy());
+    upstream.once("close", () => socket.destroy());
+    upstream.once("connect", () => {
+      connected = true;
+      upstream.write(request.method + " " + request.url + " HTTP/1.1\r\n" +
+        request.rawHeaders.reduce((lines, value, index) =>
+          lines + (index % 2 === 0 ? value + ": " : value + "\r\n"), "") + "\r\n");
+      if (head.length > 0) upstream.write(head);
+      socket.pipe(upstream);
+      upstream.pipe(socket);
+    });
+  });
+  relay.on("error", () => {
+    child.kill("SIGTERM");
+    process.exit(1);
+  });
+  relay.listen(Number(process.env.APP_SERVER_PORT), "127.0.0.1");
+}
 const codexStderrDone = child.stderr ? forwardCodexStderr(child.stderr) : Promise.resolve();
 child.on("exit", (code, signal) => {
   const status = code ?? (signal === "SIGTERM" ? 0 : 1);

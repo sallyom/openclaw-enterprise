@@ -306,6 +306,7 @@ test("OpenShell publishes a stable protected Codex route for the Gateway", () =>
     },
   };
   configuration.kubernetes.serviceAuthorizationMode = "bearerPassthrough";
+  configuration.kubernetes.legacyReadOnlyRelay = true;
   const driver = new OpenShellSandboxDriver(configuration, {
     id: "openshell-sandbox",
     implementation: "openshell",

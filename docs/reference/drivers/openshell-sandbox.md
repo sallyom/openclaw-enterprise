@@ -142,8 +142,13 @@ The [test-cluster bridge](openshell-sandbox-test-bridge.md) requires the same
 Agent ServiceAccount in the gateway and Driver. Its copied token expires;
 production leaves the option unset.
 
-For published service routing, `gateway.serviceRouting` names the published
-domain and exact OpenShell Gateway Pod peer.
+For the OpenShift test cluster, `gateway.serviceRouting` names the published
+domain and exact OpenShell Gateway Pod peer. `kubernetes.legacyReadOnlyRelay:
+true` makes Codex listen on a Unix socket; a loopback relay checks the
+app-server bearer token before opening it. This option requires
+`serviceAuthorizationMode: bearerPassthrough` so OpenShell preserves the header.
+The OpenShift example enables all three settings. A live model turn remains
+unverified.
 
 Do not add a policy for the model endpoint. The credential source's provider
 profile allows `api.openai.com` with TLS inspection, and an uninspected rule for

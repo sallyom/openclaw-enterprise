@@ -56,7 +56,7 @@ graph TD
   I -- "no: stock v0.1.3-pre.1" --> R
   I -. "verification bridge" .-> V{"<b>Harness</b>"}
   V -- "Codex" --> J["<b>Sandbox ready</b><br/>App-server route"]
-  J --> W["<b>Route through OpenShell</b><br/>Virtual Host"]
+  J --> W["<b>Route through OpenShell</b><br/>Virtual Host and bearer relay"]
   W --> K["<b>Verify route</b><br/>Protected 401"]
   K --> L["<b>Run model turn</b><br/>Sandbox loopback"]
   V -- "OpenClaw" --> T["<b>Sandbox ready</b><br/>No inbound exposure"]
@@ -249,7 +249,9 @@ also prevents readiness.
 With `serviceRouting`, Compute uses OpenShell's published virtual Host and
 WebSocket route. Its NetworkPolicy admits the configured Gateway peer and
 limits direct Harness egress to plugin status. A mismatched returned Host fails
-provisioning.
+provisioning. On OpenShift, the temporary relay checks the bearer token before
+forwarding WebSocket traffic to Codex's Unix socket. A live model turn remains
+unverified.
 
 For private node routing, OpenShell's policy proxy opens the connection from its
 supervisor Pod rather than the Harness Pod. The Helm-owned Envoy NetworkPolicy
@@ -343,7 +345,7 @@ Kubernetes Compute delete the Kubernetes namespace.
 
 ## Changelog
 
-- 2026-10-02 01:31: Documented the published service route; live OpenShift model-turn proof remains pending. (authoring-run/8fe8dd0f-ac1a-4d42-862b-bce2b8d8701a - c6cbe152f6e0c184a7b2b043e67c81dc54783886)
+- 2026-10-02 01:31: Documented the published service route and temporary authenticated Unix relay; live OpenShift model-turn proof remains pending. (authoring-run/8fe8dd0f-ac1a-4d42-862b-bce2b8d8701a - c6cbe152f6e0c184a7b2b043e67c81dc54783886)
 
 - 2026-10-01 18:18: Documented private Service VIP policy serialization and full DNS names for node routing. (authoring-run/1f0b57c9-ffbf-436b-a836-ad4fccf69a63 - cc545eb53dbe5f83ad450e96dcf38cfdc7603a4a)
 
