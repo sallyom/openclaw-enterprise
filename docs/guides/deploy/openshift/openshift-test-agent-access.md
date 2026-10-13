@@ -10,6 +10,12 @@ Use this after the [first Agent recipe](openshift-test-agent.md) or
 [additional Agent recipe](openshift-test-agents.md) has prepared the draft and
 operator prerequisites. This owner policy applies to dedicated Codex through OpenShell.
 
+For cluster-admin teammates, complete the OCC account and exact resource grants
+below, then skip step 3's Kubernetes Service grant. OpenShift cluster-admin does
+not grant OCC access. If a teammate already has OCC Installation administrator
+access, the owner Role cannot restrict that independent grant. Use their own
+OCC account; never share the bootstrap administrator credentials.
+
 ## Access boundaries
 
 | Surface    | Added access                                                                                                                                    | Excluded from this grant                                                                           |

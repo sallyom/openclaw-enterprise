@@ -122,8 +122,23 @@ identity proxy listens only on Pod loopback, between OAuth and the Gateway.
 
 ## Grant access to a non-admin OpenShift user
 
-Skip this section for an admin-only trial; continue to **Allow the Route origin
-and deploy**. To grant a non-admin user access, run the block below.
+Choose the access mode if you did not set it in the additional Agent recipe:
+
+```bash
+# CHOOSE: cluster-admin for admin teammates; scoped for non-admin owners.
+export CONTROL_UI_ACCESS_MODE='scoped'
+```
+
+If `CONTROL_UI_ACCESS_MODE=cluster-admin`, skip this section and continue to
+**Allow the Route origin and deploy**. Existing cluster-admin users already pass
+the proxy's Service permission check; they use their normal OpenShift OAuth
+login. Keep the OAuth proxy and its permission check enabled.
+
+For `CONTROL_UI_ACCESS_MODE=scoped`, run the block below. The variable guides which
+recipe blocks to run; it does not alter RBAC automatically or revoke existing
+grants. Changing a scoped user to cluster-admin later does not require a proxy
+change. Removing cluster-admin access requires keeping or adding the scoped
+Service grant if that person should retain Control UI access.
 
 An administrator creates the Agent and proxy. Its user needs an existing
 OpenShift login and `get` permission on this exact Gateway Service; they need

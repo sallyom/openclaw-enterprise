@@ -33,6 +33,9 @@ export OCC_SERVICE_KEY_FILE='<private OCC service-key file>'
 # REQUIRED: new DNS-style name for this Codex Agent.
 export AGENT_NAME='codex-luna-alice'
 
+# CHOOSE: cluster-admin for admin teammates; scoped for non-admin owners.
+export CONTROL_UI_ACCESS_MODE='scoped'
+
 oc whoami
 
 oc whoami --show-server
@@ -53,6 +56,12 @@ test ! -e "$AGENT_INPUT_DIRECTORY/agent-response.json"
 
 export CONFIGURATION_FILE=deploy/examples/openshift-test/codex-luna-configuration.json
 ```
+
+Choose `cluster-admin` when every intended teammate already has that OpenShift
+role. The Control UI recipe then skips the per-user Service grant. Choose
+`scoped` to grant a non-admin owner access to their exact Agent Service.
+This choice does not change anyone's existing cluster permissions or OCC IAM.
+It applies to the Agent being prepared, not previously deployed Agents.
 
 ## 2. Create the Namespace and grant its operator permissions
 
@@ -225,8 +234,14 @@ Finish that procedure before starting the recipe again for the next Agent.
 Complete [Agent owner access](openshift-test-agent-access.md) as the administrator
 to provision or select the teammate's OCC account, grant the exact Namespace,
 Agent, Configuration, model Secret, source, and final revision permissions, and
-grant their OpenShift username access to the Control UI Service. Use the final
+for `scoped` access, grant their OpenShift username access to the Control UI
+Service. For `cluster-admin`, skip that Kubernetes grant. Use the final
 revision returned by the Control UI procedure, not the earlier deployment.
+
+OpenShift cluster-admin does not grant OCC permissions. Keep the exact OCC
+owner grants for teammates who manage their Agent through the Console. If they
+already have OCC Installation administrator access, those owner grants add no
+restriction; use their own account without sharing the bootstrap credentials.
 
 Share the Console URL, Control UI URL, Namespace ID, and Agent ID. The owner uses
 their own OCC account for the Console and their existing OpenShift login for the
