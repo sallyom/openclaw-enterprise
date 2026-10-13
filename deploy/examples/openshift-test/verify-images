@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Fetch complete registry metadata without updating the built ImageStreamTags.
+set -euo pipefail
+umask 077
+
+: "${OCC_INPUT_DIRECTORY:?Set the private deployment input directory}"
+revision=$(jq -er '.oceCommit' "$OCC_INPUT_DIRECTORY/runtime-source.json")
+openclaw=$(jq -er '.openclawCommit' "$OCC_INPUT_DIRECTORY/runtime-source.json")
+[[ "$revision" =~ ^[a-f0-9]{40}$ ]]
+[[ "$openclaw" =~ ^[a-f0-9]{40}$ ]]
+receipt=$(mktemp "$OCC_INPUT_DIRECTORY/image-metadata.XXXXXX")
+trap 'rm -f "$receipt"' EXIT
+
+for component in controller runtime; do
+  tag=$revision
+  if [[ "$component" == runtime ]]; then
+    tag="$revision-$openclaw"
+  fi
+  image=$(oc -n openclaw-system get imagestreamtag "oce-$component:$tag" \
+    -o jsonpath='{.image.dockerImageReference}')
+  [[ "$image" =~ @sha256:[a-f0-9]{64}$ ]]
+  jq -n --arg name "oce-$component" --arg image "$image" \
+    '{apiVersion:"image.openshift.io/v1", kind:"ImageStreamImport",
+      metadata:{name:$name, namespace:"openclaw-system"},
+      spec:{import:false, images:[{from:{kind:"DockerImage", name:$image}}]}}' |
+    oc create --raw /apis/image.openshift.io/v1/namespaces/openclaw-system/imagestreamimports -f - |
+    jq -e --arg component "$component" --arg image "$image" '
+      .status.images |
+      if length == 1 and .[0].status.status == "Success" and
+        .[0].image.dockerImageMetadata.Architecture == "amd64" then
+        {component:$component, image:$image, architecture:"amd64"}
+      else error("Expected one successful amd64 image import; inspect the registry response.") end' \
+      >> "$receipt"
+done
+jq -s 'map({key:.component, value:del(.component)}) | from_entries' \
+  "$receipt" > "$OCC_INPUT_DIRECTORY/build-images.json"
+{
+  printf 'export CONTROLLER_IMAGE=%q\n' "$(jq -r .controller.image "$OCC_INPUT_DIRECTORY/build-images.json")"
+  printf 'export RUNTIME_IMAGE=%q\n' "$(jq -r .runtime.image "$OCC_INPUT_DIRECTORY/build-images.json")"
+} > "$OCC_INPUT_DIRECTORY/images.env"
+jq . "$OCC_INPUT_DIRECTORY/build-images.json"

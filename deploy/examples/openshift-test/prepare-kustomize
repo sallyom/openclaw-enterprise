@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Copy the checked-in overlay and add private deployment overrides; never apply resources.
+set -euo pipefail
+umask 077
+: "${OCC_INPUT_DIRECTORY:?Set the existing private input directory}"
+repository=$(cd "$(dirname "$0")/../../.." && pwd -P)
+OCC_INPUT_DIRECTORY=$(cd "$OCC_INPUT_DIRECTORY" && pwd -P)
+case "$OCC_INPUT_DIRECTORY/" in
+  "$repository/"*) echo 'Keep deployment inputs outside the checkout.' >&2; exit 1 ;;
+esac
+stage=${1:?Usage: prepare-kustomize operators|database|admission|openshell|control-plane|routing|control-ui|control-ui-access}
+source="$repository/deploy/examples/openshift-test"
+case "$stage" in
+  operators|database|admission|openshell|routing) inputs=() ;;
+  control-plane) inputs=(bootstrap-pvc.yaml control-plane-postgres-egress.yaml control-plane-kube-api-egress.yaml console-route.yaml) ;;
+  control-ui) inputs=(control-ui-oauth-proxy.yaml) ;;
+  control-ui-access) inputs=(control-ui-access.yaml) ;;
+  *) echo "Unknown OpenShift stage: $stage" >&2; exit 1 ;;
+esac
+base="$OCC_INPUT_DIRECTORY/kustomize/base/$stage"
+destination="$OCC_INPUT_DIRECTORY/kustomize/overlays/test/$stage"
+install -d -m 700 "$base" "$destination"
+for file in "$source/base/$stage/"*.yaml; do
+  install -m 600 "$file" "$base/$(basename "$file")"
+done
+install -m 600 "$source/overlays/test/$stage/kustomization.yaml" "$destination/kustomization.yaml"
+if [ "${#inputs[@]}" -gt 0 ]; then
+  paths=()
+  for file in "${inputs[@]}"; do
+    test -s "$OCC_INPUT_DIRECTORY/$file"
+    paths+=("$OCC_INPUT_DIRECTORY/$file")
+  done
+  oc kustomize "$base" | yq eval-all -o=json -I=0 '[.]' - > "$destination/base-resources.json"
+  yq eval-all -o=json -I=0 '[.]' "${paths[@]}" > "$destination/input-resources.json"
+  # Complete resource patches preserve the already reviewed private inputs exactly.
+  python3 - "$destination" "$stage" <<'PY'
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+stage = sys.argv[2]
+bases = json.loads((root / 'base-resources.json').read_text())
+inputs = json.loads((root / 'input-resources.json').read_text())
+if len(inputs) != len(bases):
+    raise SystemExit('Private input resources must match the selected stage.')
+
+
+def write_yaml(name, document):
+    with (root / name).open('w') as output:
+        subprocess.run(['yq', '-P', '-o=yaml', '.'], input=json.dumps(document),
+                       text=True, stdout=output, check=True)
+
+
+patches = []
+for index, resource in enumerate(inputs):
+    matches = [
+        base for base in bases
+        if base['apiVersion'] == resource['apiVersion']
+        and base['kind'] == resource['kind']
+        and (stage == 'control-ui-access'
+             or base['metadata']['name'] == resource['metadata']['name'])
+    ]
+    if len(matches) != 1:
+        raise SystemExit('Private input must identify exactly one base resource.')
+    base = matches[0]
+    bases.remove(base)
+    group, _, version = base['apiVersion'].rpartition('/')
+    name = f'private-resource-{index}.yaml'
+    write_yaml(name, [{'op': 'replace', 'path': '', 'value': resource}])
+    target = {'group': group, 'version': version, 'kind': base['kind']}
+    if stage != 'control-ui-access':
+        target['name'] = base['metadata']['name']
+    patches.append({'path': name, 'target': target})
+configuration = {'apiVersion': 'kustomize.config.k8s.io/v1beta1', 'kind': 'Kustomization',
+                 'resources': [f'../../../base/{stage}'], 'patches': patches}
+write_yaml('kustomization.yaml', configuration)
+(root / 'base-resources.json').unlink()
+(root / 'input-resources.json').unlink()
+PY
+fi
+oc kustomize "$destination" > "$destination/rendered.yaml"
+printf 'Prepared %s. No cluster resources were changed.\n' "$destination"

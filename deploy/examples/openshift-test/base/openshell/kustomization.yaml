@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - openshell-namespace.yaml
+  - openshell-runtimeclass.yaml
+  - openshell-workspace-writer-clusterrole.yaml
+  - openshell-gateway-network-policy.yaml
+  - control-plane-openshell-egress.yaml

@@ -1,0 +1,12 @@
+fullnameOverride: openshell-workspace
+gateway:
+  allowDriverConfig: true
+  serviceAccount:
+    name: openshell-gateway
+    namespace: openshell-system
+  networkPolicy:
+    podSelector:
+      app.kubernetes.io/name: openshell
+      app.kubernetes.io/instance: openshell-gateway
+sandboxServiceAccount:
+  name: openshell-sandbox

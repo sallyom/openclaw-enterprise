@@ -1,0 +1,13 @@
+CREATE ROLE occ_migrator LOGIN PASSWORD :'migrator_password'
+  NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+CREATE ROLE occ_app LOGIN PASSWORD :'application_password'
+  NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+CREATE DATABASE openclaw_enterprise OWNER occ_migrator;
+REVOKE ALL ON DATABASE openclaw_enterprise FROM PUBLIC;
+GRANT CONNECT, TEMPORARY ON DATABASE openclaw_enterprise TO occ_migrator, occ_app;
+
+\connect openclaw_enterprise
+CREATE SCHEMA occ AUTHORIZATION occ_migrator;
+CREATE SCHEMA drizzle AUTHORIZATION occ_migrator;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;

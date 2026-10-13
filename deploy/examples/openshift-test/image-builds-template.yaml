@@ -1,0 +1,71 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: oce-image-builds
+parameters:
+  - name: REV
+    required: true
+  - name: RUNTIME_TAG
+    description: Runtime tag identifying both OCE and OpenClaw source revisions.
+    required: true
+  - name: NODE_BASE_IMAGE
+    value: docker.io/library/node:24-bookworm@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
+objects:
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: oce-controller
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: oce-runtime
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: oce-controller
+    spec:
+      source:
+        type: Binary
+        binary: {}
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Dockerfile
+          buildArgs:
+            - name: NODE_BASE_IMAGE
+              value: ${NODE_BASE_IMAGE}
+            - name: OCC_BUILD_REVISION
+              value: ${REV}
+      output:
+        to:
+          kind: ImageStreamTag
+          name: oce-controller:${REV}
+        imageLabels:
+          - name: org.opencontainers.image.revision
+            value: ${REV}
+      triggers: []
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: oce-runtime
+    spec:
+      source:
+        type: Binary
+        binary: {}
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: deploy/runtime/Dockerfile
+          buildArgs:
+            - name: NODE_BASE_IMAGE
+              value: ${NODE_BASE_IMAGE}
+            - name: OCC_BUILD_REVISION
+              value: ${REV}
+      output:
+        to:
+          kind: ImageStreamTag
+          name: oce-runtime:${RUNTIME_TAG}
+        imageLabels:
+          - name: org.opencontainers.image.revision
+            value: ${REV}
+      triggers: []

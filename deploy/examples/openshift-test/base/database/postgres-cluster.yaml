@@ -1,0 +1,31 @@
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: oce-postgres
+  namespace: openclaw-postgres
+spec:
+  openshift: true
+  postgresVersion: 18
+  users:
+    - name: postgres
+  instances:
+    - name: instance1
+      dataVolumeClaimSpec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: gp3-csi
+        resources:
+          requests:
+            storage: 5Gi
+  backups:
+    pgbackrest:
+      repos:
+        - name: repo1
+          volume:
+            volumeClaimSpec:
+              accessModes:
+                - ReadWriteOnce
+              storageClassName: gp3-csi
+              resources:
+                requests:
+                  storage: 1Gi

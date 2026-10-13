@@ -207,3 +207,7 @@ The optional `deploy/helm/openclaw-observability-demo/` chart owns disposable
 telemetry backends. Its `files/dashboard.json` is also the Compose metrics
 dashboard; Compose provisioning and scraper configurations remain under
 `deploy/metrics/development/`.
+
+`deploy/examples/openshift-test/` owns test-only OpenShift manifests, Kustomize
+stages, Helm inputs, and private-input deployment helpers. Its operator procedure
+lives under `docs/guides/deploy/openshift/`; generated inputs stay outside the checkout.

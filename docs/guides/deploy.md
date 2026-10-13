@@ -152,3 +152,6 @@ runtime paths. See
 - [Local Kubernetes, development TUI, and cleanup](deploy/local-operations.md)
 - [Local Kubernetes development inner loop](deploy/local-kubernetes-development.md)
 - [Configuration and settings](../reference/settings.md)
+
+For an OpenShift test installation with dedicated Codex through OpenShell, follow
+the [OpenShift operator recipe](deploy/openshift/README.md).

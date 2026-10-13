@@ -1,0 +1,19 @@
+{
+  "name": "oce-dedicated-agent-deployer",
+  "permissions": [
+    { "action": "read", "resourceKind": "namespace" },
+    { "action": "read", "resourceKind": "agent" },
+    { "action": "update", "resourceKind": "agent" },
+    { "action": "deploy", "resourceKind": "agent" },
+    { "action": "operate", "resourceKind": "agent" },
+    { "action": "read_logs", "resourceKind": "agent" },
+    { "action": "read", "resourceKind": "configuration" },
+    { "action": "update", "resourceKind": "configuration" },
+    { "action": "read", "resourceKind": "secret" },
+    { "action": "operate", "resourceKind": "secret" },
+    { "action": "read", "resourceKind": "credential_source" },
+    { "action": "operate", "resourceKind": "credential_source" },
+    { "action": "read", "resourceKind": "preset" },
+    { "action": "read", "resourceKind": "agent_revision" }
+  ]
+}

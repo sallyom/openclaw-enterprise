@@ -1,0 +1,81 @@
+backend:
+  - id: openshell
+    type: openshell
+    configuration:
+      endpoint: http://openshell-gateway.openshell-system.svc.cluster.local:8080
+      insecureTransport: network-policy
+    drivers:
+      sandbox: openshell-sandbox
+      credential_gateway: openshell-credentials
+drivers:
+  compute:
+    configuration:
+      servicePrincipalCredentials:
+        mode: disabled
+      network:
+        providerHarness:
+          namespace: openshell-system
+          podLabels:
+            app.kubernetes.io/name: openshell
+            app.kubernetes.io/instance: openshell-gateway
+          # Replace with the discovered OpenShell gateway Service ClusterIP.
+          address: 192.0.2.10
+          port: 8080
+  sandbox:
+    id: openshell-sandbox
+    configuration:
+      gateway:
+        workspaceMode: operator
+        operatorNamespaceLabels:
+          openshell.ai/openclaw-workspace: "true"
+        operatorWorkspaceResources: []
+        networkPolicyResources:
+          - apiVersion: networking.k8s.io/v1
+            kind: NetworkPolicy
+            metadata:
+              name: allow-openshell-sandbox-callback
+            spec:
+              podSelector:
+                matchLabels:
+                  openshell.ai/managed-by: openshell
+                  openshell.ai/boundary-role: supervisor
+              policyTypes: [Egress]
+              egress:
+                - to:
+                    - namespaceSelector:
+                        matchLabels:
+                          kubernetes.io/metadata.name: openshell-system
+                      podSelector:
+                        matchLabels:
+                          app.kubernetes.io/name: openshell
+                          app.kubernetes.io/instance: openshell-gateway
+                  ports:
+                    - protocol: TCP
+                      port: 8080
+      kubernetes:
+        runtimeClassName: openshell-sandbox
+        serviceAccount:
+          mode: gatewayConfigured
+        sandboxDataMount:
+          subPath: workspace
+          mountPath: /sandbox/enterprise
+          readOnly: false
+      policy:
+        process:
+          runAsUser: "1000"
+          runAsGroup: "1000"
+        networkPolicies:
+          - name: source-control
+            endpoints:
+              - host: github.com
+                ports: [443]
+                protocol: tcp
+                tls: skip
+            binaries:
+              - path: /usr/bin/git
+      sandboxNamePrefix: os
+  credential_gateway:
+    id: openshell-credentials
+    configuration:
+      binaries:
+        - /app/node_modules/openclaw/node_modules/.pnpm/@openai+codex@0.163.0-alpha.2-linux-x64/node_modules/@openai/codex/vendor/x86_64-unknown-linux-musl/bin/codex

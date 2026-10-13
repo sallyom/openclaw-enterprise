@@ -1,0 +1,31 @@
+# Apply in openclaw-system before the Helm pre-install Job.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oce-fixed-uid-1000
+  namespace: openclaw-system
+rules:
+  - apiGroups: [security.openshift.io]
+    resources: [securitycontextconstraints]
+    resourceNames: [oce-fixed-uid-1000]
+    verbs: [use]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oce-fixed-uid-1000-control-plane
+  namespace: openclaw-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: oce-fixed-uid-1000
+subjects:
+  - kind: ServiceAccount
+    name: openclaw-enterprise-api
+    namespace: openclaw-system
+  - kind: ServiceAccount
+    name: openclaw-enterprise-worker
+    namespace: openclaw-system
+  - kind: ServiceAccount
+    name: openclaw-enterprise-initialization
+    namespace: openclaw-system

@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: oce-openshell-workspace-writer
+rules:
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles]
+    verbs: [get, list, create, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles]
+    resourceNames: [openshell-workspace-sandbox]
+    verbs: [bind, escalate]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [get, list, create, patch, delete]

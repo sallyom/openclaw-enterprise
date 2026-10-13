@@ -1,0 +1,44 @@
+# OpenShift test-cluster profile for the pinned OpenShell v0.1.3 chart.
+# Only an isolated OCE controller may reach this unauthenticated gateway.
+# Development-only plaintext transport requires the exact NetworkPolicy boundary.
+fullnameOverride: openshell-gateway
+server:
+  disableTls: true
+  auth:
+    allowUnauthenticatedUsers: true
+  drivers:
+    kubernetes:
+      allowDriverConfig: true
+      resourceAdmission:
+        enabled: false
+      workspaceMode: operator
+      operatorNamespaceLabel: openshell.ai/openclaw-workspace=true
+serviceAccount:
+  name: openshell-gateway
+sandboxServiceAccount:
+  name: openshell-sandbox
+workspaceResources:
+  enabled: false
+podSecurityContext:
+  fsGroup: null
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  runAsUser: null
+service:
+  type: ClusterIP
+gateway:
+  image:
+    registry: ghcr.io
+    repository: nvidia/openshell/gateway
+    digest: sha256:ea14aa4db0980fab4769fb6b5509ac42ae3dc8495e645b1ba1fe1ada49892fa6
+sandboxRuntime:
+  image:
+    registry: ghcr.io
+    repository: nvidia/openshell/sandbox
+    digest: sha256:2658534bfb3f1ebba4bb7792e9e875a0972edbe7ae5f58d807ae22c46844a2ac
+supervisor:
+  image:
+    registry: ghcr.io
+    repository: nvidia/openshell/supervisor
+    digest: sha256:4ab2b970cdb02c7518ba4ccbbadb4861ae9a8d0b8770e5b160697f0453b0a8e4

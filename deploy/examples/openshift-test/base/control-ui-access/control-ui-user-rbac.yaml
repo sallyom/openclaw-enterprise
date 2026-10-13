@@ -1,0 +1,24 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${GATEWAY_SERVICE}-control-ui-user
+  namespace: ${GATEWAY_NAMESPACE}
+rules:
+  - apiGroups: [""]
+    resources: [services]
+    resourceNames: ["${GATEWAY_SERVICE}"]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${GATEWAY_SERVICE}-control-ui-user
+  namespace: ${GATEWAY_NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${GATEWAY_SERVICE}-control-ui-user
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: "${CONTROL_UI_USER}"

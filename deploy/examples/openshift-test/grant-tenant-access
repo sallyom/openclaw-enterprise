@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Grant the exact OCE tenant identities after its Kubernetes namespace appears.
+set -euo pipefail
+: "${OCC_NAMESPACE:?Set the server-assigned OCC Namespace ID}"
+[[ "$OCC_NAMESPACE" =~ ^ns_[a-f0-9-]+$ ]]
+
+tenant=""
+for attempt in {1..30}; do
+  tenant=$(oc get namespaces -l "openclaw.dev/namespace=$OCC_NAMESPACE" -o json |
+    jq -r '.items | if length == 0 then "" elif length == 1 then .[0].metadata.name
+      else error("Expected one backing tenant namespace.") end')
+  if [[ -n "$tenant" ]]; then
+    break
+  fi
+  sleep 1
+done
+if [[ -z "$tenant" ]]; then
+  echo 'Tenant namespace not found; inspect worker logs before repeating this grant.' >&2
+  exit 1
+fi
+oc get namespace "$tenant" -o json | jq -e --arg id "$OCC_NAMESPACE" '
+  .metadata.labels["openclaw.dev/namespace"] == $id and
+  .metadata.annotations["openclaw.dev/namespace-id"] == $id' >/dev/null
+
+for grant in \
+  openclaw-enterprise-worker:oce-openclaw-tenant-worker \
+  openclaw-enterprise-api-observer:oce-openclaw-gateway-observer \
+  openclaw-enterprise-worker-openshell:oce-openshell-workspace-writer \
+  openclaw-enterprise-api-secrets:oce-openclaw-tenant-api \
+  openclaw-enterprise-api-configuration:oce-openclaw-tenant-configuration; do
+  binding=${grant%%:*}
+  account=openclaw-enterprise-api
+  if [[ "$binding" == *worker* ]]; then
+    account=openclaw-enterprise-worker
+  fi
+  oc -n "$tenant" create rolebinding "$binding" --clusterrole="${grant#*:}" \
+    --serviceaccount="openclaw-system:$account" --dry-run=client -o yaml |
+    oc -n "$tenant" apply -f -
+done
+printf 'Tenant grants ready: %s (%s)\n' "$OCC_NAMESPACE" "$tenant"

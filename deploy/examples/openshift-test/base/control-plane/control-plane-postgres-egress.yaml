@@ -1,0 +1,28 @@
+# OpenShift OVN resolves the operator's primary Service to a Pod endpoint.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: oce-postgres-egress
+  namespace: openclaw-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: openclaw-enterprise
+      app.kubernetes.io/instance: oce
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [initialization, api, worker]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openclaw-postgres
+          podSelector:
+            matchLabels:
+              postgres-operator.crunchydata.com/cluster: oce-postgres
+              postgres-operator.crunchydata.com/role: master
+      ports:
+        - protocol: TCP
+          port: 5432

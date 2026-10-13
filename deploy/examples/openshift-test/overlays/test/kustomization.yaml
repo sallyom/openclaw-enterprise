@@ -1,0 +1,12 @@
+# Review the whole example here; deploy individual stages in the guide order.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - operators
+  - database
+  - admission
+  - openshell
+  - control-plane
+  - routing
+  - control-ui
+  - control-ui-access
